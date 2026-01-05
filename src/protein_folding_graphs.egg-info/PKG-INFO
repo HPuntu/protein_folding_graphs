@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: protein_folding_graphs
+Version: 0.1.0
+Summary: Contact-map topology, clustering, and graph analysis for protein folding on MD trajectories
+Author-email: Hew Phipps <hew.phipps@live.co.uk>
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.22
+Requires-Dist: scipy>=1.9
+Requires-Dist: scikit-learn>=1.2
+Requires-Dist: networkx>=3.0
+Requires-Dist: matplotlib>=3.7
+Requires-Dist: plotly>=5.15
+Requires-Dist: umap-learn>=0.5
+Requires-Dist: hdbscan>=0.8
+Requires-Dist: ipywidgets>=8.0
+Provides-Extra: dev
+Requires-Dist: black; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: ipython; extra == "dev"

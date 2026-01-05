@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "protein_folding_graphs"
+version = "0.1.0"
+description = "Contact-map topology, clustering, and graph analysis for protein folding on MD trajectories"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Hew Phipps", email = "hew.phipps@live.co.uk" }
+]
+
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.9",
+    "scikit-learn>=1.2",
+    "networkx>=3.0",
+    "matplotlib>=3.7",
+    "plotly>=5.15",
+    "umap-learn>=0.5",
+    "hdbscan>=0.8",
+    "ipywidgets>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "pytest",
+    "ipython",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+origami = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W"]
+ignore = ["E203", "E266", "E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

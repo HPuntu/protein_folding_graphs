@@ -1,0 +1,15 @@
+numpy>=1.22
+scipy>=1.9
+scikit-learn>=1.2
+networkx>=3.0
+matplotlib>=3.7
+plotly>=5.15
+umap-learn>=0.5
+hdbscan>=0.8
+ipywidgets>=8.0
+
+[dev]
+black
+ruff
+pytest
+ipython

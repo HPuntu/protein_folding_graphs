@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+src/protein_folding_graphs.egg-info/PKG-INFO
+src/protein_folding_graphs.egg-info/SOURCES.txt
+src/protein_folding_graphs.egg-info/dependency_links.txt
+src/protein_folding_graphs.egg-info/requires.txt
+src/protein_folding_graphs.egg-info/top_level.txt
