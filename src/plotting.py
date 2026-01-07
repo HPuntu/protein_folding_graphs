@@ -8,10 +8,16 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib import cm
 from matplotlib.colors import Normalize
+from collections import Counter
 
 
 def ensure_frame_counts(G, map_uid):
-    """Ensure G.nodes[n]['frame_count'] exists."""
+    '''  
+    Helper to check our Graph's nodes have associated frame_count attributes
+    which is an integer describing the associate number of frames in the trajectory
+    seen with the unique contact map of the given node. Value used for node
+    sizes.
+    '''
     map_uid = np.asarray(map_uid, dtype=int)
     U = G.number_of_nodes()
     # If map_uid is empty, handle gracefully
@@ -25,7 +31,10 @@ def ensure_frame_counts(G, map_uid):
     return counts
 
 def compress_sequence(seq):
-    """Compress consecutive duplicates, preserve order."""
+    '''  
+    Given a sequence, compress so that any contiguous repeats are replaced
+    with just the one value whilst preserving order.
+    '''
     seq = list(seq)
     if not seq:
         return []
@@ -36,35 +45,58 @@ def compress_sequence(seq):
             out.append(xi)
     return out
 
-def expand_seq_to_edges(G, node_seq, expand_jumps=True):
-    """
-    Convert compressed node sequence to undirected edge pairs. 
-    If expand_jumps=True, fills gaps using shortest_path.
-    """
-    seen = set()
-    out = []
+def expand_seq_to_edges(G, node_seq, expand_jumps=True, count_multiplicity=False):
+    '''
+    builds the temporal edge conenctivity between nodes who's unique contact maps
+    appear as frames in sequence (before or after) in the trajectory. Operates on
+    the contiguity compressed sequence where contiguously repeating duplicates are 
+    reduced to single occurences.
+
+    Importantly, the expand_jumps arg specifies that, if the two nodes adjacent in
+    sequence temporally are not adjacent in the contact space manifold then we still
+    connect them by finding the shortest edge path along the manifold edges 
+    between them.
+
+    include_multiplicity as False specifies all edges are added only once so no 
+    expression of multiplicity of connections by say visual weighting, this can be
+    turned on.
+    '''
+    if count_multiplicity:
+        counts = Counter()
+    else:
+        seen = set()
+        out = []
+
     for i in range(len(node_seq)-1):
-        a = int(node_seq[i]); b = int(node_seq[i+1])
+        a = int(node_seq[i])
+        b = int(node_seq[i+1])
         if a == b:
             continue
-        # If edge exists physically
-        if G.has_edge(a,b) or G.has_edge(b,a):
-            key = tuple(sorted((a,b)))
-            if key not in seen:
-                seen.add(key); out.append((a,b))
+
+        def add_edge(u, v):
+            key = tuple(sorted((u, v)))
+            if count_multiplicity:
+                counts[key] += 1
+            else:
+                if key not in seen:
+                    seen.add(key)
+                    out.append(key)
+
+        # direct edge
+        if G.has_edge(a, b) or G.has_edge(b, a):
+            add_edge(a, b)
             continue
-        # If jump needs expansion
+
+        # expand jump
         if expand_jumps:
             try:
-                path_nodes = nx.shortest_path(G, source=a, target=b)
+                path = nx.shortest_path(G, source=a, target=b)
             except nx.NetworkXNoPath:
                 continue
-            for j in range(len(path_nodes)-1):
-                u = int(path_nodes[j]); v = int(path_nodes[j+1])
-                key = tuple(sorted((u,v)))
-                if key not in seen:
-                    seen.add(key); out.append((u,v))
-    return out
+            for j in range(len(path) - 1):
+                add_edge(path[j], path[j + 1])
+
+    return counts if count_multiplicity else out
 
 def plot_graph_static(
     G,
@@ -74,16 +106,22 @@ def plot_graph_static(
     start_frame=0,
     expand_jumps=True,
     show_shortest=True,
+    count_multiplicity=False,
     figsize=(12, 7),
     node_size_range=(8, 48),
-    unique_maps=None,     # Ignored in static, kept for signature compatibility
-    unique_indices=None,  # Ignored in static, kept for signature compatibility
-    title="Contact-difference graph (Static)",
+    title="Protein Folding Contact Topology Graph",
+    unique_maps=None, # Ignored in static, kept for signature compatibility 
+    unique_indices=None # Ignored in static, kept for signature compatibility
 ):
-    """
-    Exact implementation of the 'Old Function' logic within the new framework.
-    Does NOT rely on edge attributes. Calculates Pre/Post/Shortest paths from map_uid.
-    """
+    '''
+    Plots a static non-interactive matplotlib graph given networkx graph object G. 
+    Highlights post-folded state (most occupied node) edges red and the shortest
+    path edges blue. Node sizes correspond to counts in the trajectory and nodes are
+    coloured by their first frame's index in the trajectory.
+
+    pos can be provided to set node positions from say a clustering projection/embedding.
+    Or X_emb can be provided instead of pos (usually when generated by clustering).
+    '''
     if map_uid is None:
         raise RuntimeError("map_uid required for static plot")
     
@@ -131,7 +169,7 @@ def plot_graph_static(
         post_node_seq = []
     else:
         post_node_seq = compress_sequence(map_uid[first_fold_frame + 1 :])
-    post_edge_pairs = expand_seq_to_edges(G, post_node_seq, expand_jumps)
+    post_edges = expand_seq_to_edges(G, post_node_seq, expand_jumps, count_multiplicity=count_multiplicity)
 
     # -- Pre Sequence --
     if first_fold_frame is None:
@@ -139,7 +177,7 @@ def plot_graph_static(
     else:
         pre_frames = map_uid[first_unfold_frame : first_fold_frame + 1]
     pre_node_seq = compress_sequence(pre_frames)
-    pre_edge_pairs = expand_seq_to_edges(G, pre_node_seq, expand_jumps)
+    pre_edges = expand_seq_to_edges(G, pre_node_seq,  expand_jumps, count_multiplicity=count_multiplicity)
 
     # -- Shortest Path --
     shortest_edge_pairs = []
@@ -156,10 +194,25 @@ def plot_graph_static(
     def pairs_to_segs(pairs):
         return [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for a,b in pairs]
 
+    def pairs_and_widths_from_edges(edges, pos, base_w=1.0, scale_w=1.2):
+        '''
+        edges may be list-of-pairs OR Counter
+        returns: segs ([(p0,p1),...]), widths ([w,...])
+        '''
+        if isinstance(edges, Counter):
+            items = list(edges.items())  # [((a,b), count), ...]
+            segs = [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for (a,b), _ in items]
+            widths = [base_w + scale_w * np.sqrt(c) for (_, c) in items]
+        else:
+            # list of pairs
+            segs = [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for a,b in edges]
+            widths = [2.0] * len(segs)  # old fixed widths
+        return segs, widths
+
     bg_segs = pairs_to_segs(list(G.edges()))
-    post_segs = pairs_to_segs(post_edge_pairs)
-    pre_segs = pairs_to_segs(pre_edge_pairs)
-    short_segs = pairs_to_segs(shortest_edge_pairs)
+    post_segs, post_widths = pairs_and_widths_from_edges(post_edges, pos)
+    pre_segs, pre_widths = pairs_and_widths_from_edges(pre_edges, pos)
+    short_segs, short_widths = pairs_and_widths_from_edges(shortest_edge_pairs, pos)
 
     # 7. Plotting (Exact Matplotlib commands from old function)
     fig, ax = plt.subplots(figsize=figsize)
@@ -183,15 +236,15 @@ def plot_graph_static(
 
     # Post-fold edges (Red) - Draw BEFORE pre
     if post_segs:
-        ax.add_collection(LineCollection(post_segs, colors=[(200/255,20/255,20/255,0.9)], linewidths=3, zorder=3))
+        ax.add_collection(LineCollection(post_segs, colors=[(200/255,20/255,20/255,0.9)], linewidths=post_widths, zorder=3))
         # Markers for post nodes
-        post_nodes_set = sorted({a for a,b in post_edge_pairs} | {b for a,b in post_edge_pairs})
+        post_nodes_set = sorted({a for a,b in post_edges} | {b for a,b in post_edges})
         if post_nodes_set:
             ax.scatter(node_x[post_nodes_set], node_y[post_nodes_set], s=36, c=[(200/255,20/255,20/255,0.9)], zorder=3.5)
 
     # Pre-fold edges (Translucent Grey)
     if pre_segs:
-        ax.add_collection(LineCollection(pre_segs, colors=[(150/255,150/255,150/255,0.4)], linewidths=2, zorder=4))
+        ax.add_collection(LineCollection(pre_segs, colors=[(150/255,150/255,150/255,0.4)], linewidths=pre_widths, zorder=4))
 
     # Shortest path (Blue)
     if short_segs:
@@ -214,7 +267,7 @@ def plot_graph_static(
     ax.set_title(title)
 
     # Debug Text
-    dbg = f"pre_pairs={len(pre_edge_pairs)} post_pairs={len(post_edge_pairs)} shortest_pairs={len(shortest_edge_pairs)} first_fold={first_fold_frame}"
+    dbg = f"pre_pairs={len(pre_edges)} post_pairs={len(post_edges)} shortest_pairs={len(shortest_edge_pairs)} first_fold={first_fold_frame}"
     ax.text(0.01, -0.03, dbg, transform=ax.transAxes, fontsize=9, va='top')
 
     plt.tight_layout()
@@ -222,10 +275,19 @@ def plot_graph_static(
 
 def plot_graph_widget(
     G, pos, map_uid, 
-    start_frame=0, expand_jumps=True, show_shortest=True, 
+    start_frame=0, expand_jumps=True, show_shortest=True, count_multiplicity=False,
     unique_maps=None, unique_indices=None, figsize=(1100, 700), palette='Viridis'
 ):
-    """Interactive Plotly widget."""
+    '''
+    Plots an interactive plotly notebook widget graph given networkx graph object G. 
+    Nodes can be clicked to reveal a heatmap of their contact map on the right hand side.
+    Highlights post-folded state (most occupied node) edges red and the shortest
+    path edges blue. Node sizes correspond to counts in the trajectory and nodes are
+    coloured by their first frame's index in the trajectory.
+
+    pos can be provided to set node positions from say a clustering projection/embedding.
+    Or X_emb can be provided instead of pos (usually when generated by clustering).
+    '''
     
     map_uid = np.asarray(map_uid, dtype=int)
     U = G.number_of_nodes()
@@ -248,6 +310,21 @@ def plot_graph_widget(
         if 0 <= s_node < len(sizes):
             l_widths[s_node] = 4.0; l_colors[s_node] = 'black'; sizes[s_node] *= 2.0
         return sizes, l_widths, l_colors
+
+    # helper to build per-edge traces
+    def edge_traces_from_edges(edges, pos, color='rgba(200,20,20,0.9)'):
+        traces = []
+        if isinstance(edges, Counter):
+            for (a,b), cnt in edges.items():
+                xa, ya = pos[a]; xb, yb = pos[b]
+                width = 2 + 1.5 * np.sqrt(cnt)   # tune constants
+                hover = f"{a}-{b} count={cnt}"
+                traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=width, hover=hover))
+        else:
+            for a,b in edges:
+                xa, ya = pos[a]; xb, yb = pos[b]
+                traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=3, hover=''))
+        return traces
 
     node_sizes, line_widths, line_colors = node_visuals_plotly(frame_counts, start_node, folded_node)
     
@@ -277,16 +354,16 @@ def plot_graph_widget(
         post_seq = []
     else:
         post_seq = compress_sequence(map_uid[first_fold_frame+1:])
-    post_pairs = expand_seq_to_edges(G, post_seq, expand_jumps)
-    post_x, post_y = edges_to_coords(post_pairs)
+    post_edges = expand_seq_to_edges(G, post_seq, expand_jumps, count_multiplicity=count_multiplicity)
+    #post_x, post_y = edge_traces_from_edges(post_pairs, pos, count_multiplicity=count_multiplicity)
 
     if first_fold_frame is None:
         pre_frames = map_uid[first_unfold_frame:]
     else:
         pre_frames = map_uid[first_unfold_frame:first_fold_frame+1]
     pre_seq = compress_sequence(pre_frames)
-    pre_pairs = expand_seq_to_edges(G, pre_seq, expand_jumps)
-    pre_x, pre_y = edges_to_coords(pre_pairs)
+    pre_edges = expand_seq_to_edges(G, pre_seq, expand_jumps, count_multiplicity=count_multiplicity)
+    #pre_x, pre_y = edge_traces_from_edges(pre_pairs, pos, count_multiplicity=count_multiplicity)
     # -------------------------------------------------------------
 
     fig = make_subplots(rows=1, cols=2, column_widths=[0.66, 0.34], specs=[[{"type":"scatter"}, {"type":"heatmap"}]])
@@ -296,12 +373,40 @@ def plot_graph_widget(
         fig.add_trace(go.Scatter(x=bg_x, y=bg_y, mode='lines', line=dict(color='rgba(200,200,200,0.5)', width=1), hoverinfo='none'), row=1, col=1)
 
     # 2. Post-fold (Red)
-    if post_x:
-        fig.add_trace(go.Scatter(x=post_x, y=post_y, mode='lines+markers', line=dict(color='rgba(200,20,20,0.9)', width=3), marker=dict(size=6, color='rgba(200,20,20,0.9)'), name='post'), row=1, col=1)
-
+    for t in edge_traces_from_edges(post_edges):
+        fig.add_trace(
+            go.Scatter(
+                x=t['x'],
+                y=t['y'],
+                mode='lines+markers',
+                line=dict(
+                    color='rgba(200,20,20,0.9)',
+                    width=t['width']
+                ),
+                hoverinfo='text',
+                hovertext=[t['hover']],
+                name='post'
+            ),
+            row=1, col=1
+        )
+        
     # 3. Pre-fold (Grey)
-    if pre_x:
-        fig.add_trace(go.Scatter(x=pre_x, y=pre_y, mode='lines', line=dict(color='rgba(150,150,150,0.6)', width=2), name='pre'), row=1, col=1)
+    for t in edge_traces_from_edges(pre_edges):
+        fig.add_trace(
+            go.Scatter(
+                x=t['x'],
+                y=t['y'],
+                mode='lines+markers',
+                line=dict(
+                    color='rgba(150,150,150,0.6)',
+                    width=t['width']
+                ),
+                hoverinfo='text',
+                hovertext=[t['hover']],
+                name='post'
+            ),
+            row=1, col=1
+        )
 
     # 4. Shortest (Blue)
     if show_shortest:
@@ -327,7 +432,7 @@ def plot_graph_widget(
     else:
         fig.add_trace(go.Heatmap(z=np.zeros((2,2))), row=1, col=2)
 
-    fig.update_layout(height=figsize[1], width=figsize[0], title_text="Contact-difference graph (Interactive)")
+    fig.update_layout(height=figsize[1], width=figsize[0], title_text="Protein Folding Contact Topology Graph")
     fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
     fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
 
@@ -359,16 +464,16 @@ def plot_graph_auto(
     expand_jumps=True,
     show_shortest=True,
     interactive=True,
+    count_multiplicity=False,
     palette='Viridis',
     figsize_widget=(1100,700),
     figsize_static=(12,7),
     node_size_range=(8, 48)
 ):
-    """
-    Unified wrapper. 
-    - If interactive=True: Returns (FigureWidget, HTML)
-    - If interactive=False: Returns (fig, ax) using EXACT old aesthetic/logic.
-    """
+    '''  
+    Master plotting wrapper so only one plotting function need be called. Simply specifying
+    the interactive arg will determine whether a static or interactive plot is generated.
+    '''
     map_uid = np.asarray(map_uid, dtype=int)
     
     # 1. Standardize Layout (Pos)
@@ -392,7 +497,8 @@ def plot_graph_auto(
             unique_maps=unique_maps,
             unique_indices=unique_indices,
             figsize=figsize_widget,
-            palette=palette
+            palette=palette,
+            count_multiplicity=count_multiplicity
         )
     else:
         # Pass all args specific to the old static logic
@@ -406,5 +512,6 @@ def plot_graph_auto(
             figsize=figsize_static,
             node_size_range=node_size_range,
             unique_maps=unique_maps,
-            unique_indices=unique_indices
+            unique_indices=unique_indices,
+            count_multiplicity=count_multiplicity
         )

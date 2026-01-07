@@ -2,10 +2,10 @@ import numpy as np
 import networkx as nx
 
 def detect_transition_edges(G, pos, shortest_path_nodes, threshold_sigma=2.0):
-    """
+    '''
     Identifies 'Transition Edges' defined as 1-bit steps that are 
     visually stretched significantly more than average.
-    """
+    '''
     # 1. Collect statistics for ALL 1-bit edges in the path
     # (or you could sample the whole graph for a baseline)
     strains = []

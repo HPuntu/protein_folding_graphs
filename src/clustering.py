@@ -46,7 +46,10 @@ def cluster_embedded(X, method='hdbscan', min_cluster_size=15, kmeans_k=500, ran
         return labels, mbk
     
 def pairwise_hamming_matrix(ints):
-    ''''''
+    '''
+    Computes hamming distance for all pairwise combinations of different possible
+    contact maps in integer format (in bitstrings), returns square matrix (U,U).
+    '''
     ints = list(map(int, ints))
     U = len(ints)
     if U == 0:
@@ -61,7 +64,11 @@ def pairwise_hamming_matrix(ints):
     return D
 
 def compute_cluster_medoids_hamming(ints, labels):
-    ''''''
+    '''
+    Given integer contact maps and their associated cluster labels this function
+    determines the cluster medoid by finding that integer who's total Hamming distance
+    to all other's in the cluster is the smallest.
+    '''
     ints = np.asarray(list(map(int, ints)))
     labels = np.asarray(labels, dtype=int)
     U = len(ints)
@@ -125,18 +132,9 @@ def embed_and_cluster_by_hamming(ints,
                                  random_state=42,
                                  warn_threshold=4000):
     """
-    Compute Hamming distance matrix from ints, embed it, and cluster on that distance.
-    Returns: (X_emb, labels, D) where
-      - X_emb: (U, n_components) embedding in Euclidean space
-      - labels: cluster labels (len U)
-      - D: (U, U) integer Hamming distance matrix
-
-    Notes:
-      - For large U (> warn_threshold) this will be slow / memory heavy (O(U^2)).
-      - embed_method 'mds' uses sklearn.manifold.MDS(dissimilarity='precomputed')
-      - embed_method 'spectral' uses SpectralEmbedding on affinity = exp(-D / sigma)
-      - clustering: AgglomerativeClustering with precomputed distances (average linkage)
-                  or HDBSCAN on precomputed distances (metric='precomputed').
+    Computes Hamming distance matrix from ints, embed it, and clusters on that distance.
+    Uses Multidimensional Scaling (MDS) by default to embed nodes by relative 
+    Hamming distance, and agglomerative clustering. Slow for large U.
     """
     ints = list(map(int, ints))
     U = len(ints)
