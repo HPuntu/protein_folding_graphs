@@ -188,3 +188,4 @@ def embed_and_cluster_by_hamming(ints,
         raise ValueError("cluster_method must be 'agglomerative' or 'hdbscan'")
 
     return X_emb, labels, D
+
