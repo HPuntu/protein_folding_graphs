@@ -1,9 +1,29 @@
 import numpy as np
 import MDAnalysis as mda
 from MDAnalysis.analysis import distances
-
+import scipy.linalg as sla
 
 # CORE FUNCTIONS for transforming trajectories to contact map graph networks
+
+def kabsch_align(P, Q):
+    Pc = P - P.mean(axis=0)
+    Qc = Q - Q.mean(axis=0)
+    C = Pc.T @ Qc
+    U, _, Vt = sla.svd(C)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1,:] *= -1
+        R = Vt.T @ U.T
+    return (Pc @ R) + Q.mean(axis=0)
+
+def align_traj(coords, ref=None):
+    T, N, _ = coords.shape
+    if ref is None:
+        ref = coords[0]
+    aligned = np.empty_like(coords)
+    for t in range(T):
+        aligned[t] = kabsch_align(coords[t], ref)
+    return aligned
 
 def get_contact_maps(u=None, top=None, traj=None):
     '''
@@ -24,7 +44,7 @@ def get_contact_maps(u=None, top=None, traj=None):
         pos = atoms.positions
 
         # full NxN distance matrix (symmetric)
-        D = distances.distance_array(pos, pos)   # <-- correct function
+        D = distances.distance_array(pos, pos)
 
         # boolean contact matrix, zero diagonal (no self-contact)
         C = (D < cutoff)

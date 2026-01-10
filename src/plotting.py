@@ -106,6 +106,10 @@ def plot_graph_static(
     start_frame=0,
     expand_jumps=True,
     show_shortest=True,
+    physics_path_nodes=None,
+    node_custom_color=None,
+    node_custom_color_title="Frames",
+    palette='RdBu_r',
     count_multiplicity=False,
     figsize=(12, 7),
     node_size_range=(8, 48),
@@ -129,9 +133,18 @@ def plot_graph_static(
     U = G.number_of_nodes()
     F = len(map_uid)
 
-    # 1. Ensure frame counts
+    # 1. Frame counts for node size
     frame_counts = ensure_frame_counts(G, map_uid)
 
+    # 2. Determine Color Data
+    if node_custom_color is not None:
+        node_colors = np.array(node_custom_color)
+        cbar_label = node_custom_color_title
+    else:
+        node_colors = frame_counts
+        cbar_label = "Frames (Population)"
+        palette = 'viridis' # Default to viridis if showing counts
+    
     # 2. Determine Start and Folded Nodes
     start_node = int(map_uid[start_frame]) if 0 <= start_frame < F else int(map_uid[0])
     folded_node = int(np.argmax(frame_counts))
@@ -147,7 +160,7 @@ def plot_graph_static(
     node_x = np.array([pos[i][0] for i in range(U)])
     node_y = np.array([pos[i][1] for i in range(U)])
 
-    # 4. Node Sizes (Old aesthetic logic)
+    # 4. Node Sizes
     min_size, max_size = node_size_range
     node_sizes = min_size + (frame_counts / max(1, frame_counts.max())) * (max_size - min_size)
     if 0 <= folded_node < U:
@@ -179,7 +192,7 @@ def plot_graph_static(
     pre_node_seq = compress_sequence(pre_frames)
     pre_edges = expand_seq_to_edges(G, pre_node_seq,  expand_jumps, count_multiplicity=count_multiplicity)
 
-    # -- Shortest Path --
+    # shortest path
     shortest_edge_pairs = []
     if show_shortest:
         try:
@@ -189,6 +202,13 @@ def plot_graph_static(
                 if a!=b: shortest_edge_pairs.append((a,b))
         except nx.NetworkXNoPath:
             pass
+
+    # physics shortest path
+    physics_edge_pairs = []
+    if physics_path_nodes is not None and len(physics_path_nodes) > 1:
+        for i in range(len(physics_path_nodes)-1):
+            a, b = int(physics_path_nodes[i]), int(physics_path_nodes[i+1])
+            if a != b: physics_edge_pairs.append((a, b))
 
     # 6. Prepare Segments for Matplotlib
     def pairs_to_segs(pairs):
@@ -213,6 +233,7 @@ def plot_graph_static(
     post_segs, post_widths = pairs_and_widths_from_edges(post_edges, pos)
     pre_segs, pre_widths = pairs_and_widths_from_edges(pre_edges, pos)
     short_segs, short_widths = pairs_and_widths_from_edges(shortest_edge_pairs, pos)
+    phys_segs, _ = pairs_and_widths_from_edges(physics_edge_pairs, pos)
 
     # 7. Plotting (Exact Matplotlib commands from old function)
     fig, ax = plt.subplots(figsize=figsize)
@@ -222,11 +243,10 @@ def plot_graph_static(
         ax.add_collection(LineCollection(bg_segs, colors=[(200/255,200/255,200/255,0.5)], linewidths=1.0, zorder=1))
 
     # Nodes
-    sc = ax.scatter(node_x, node_y, s=node_sizes**2, c=frame_counts, cmap='viridis', edgecolors='none', zorder=2)
+    sc = ax.scatter(node_x, node_y, s=node_sizes**2, c=node_colors, cmap=palette, edgecolors='none', zorder=2)
 
     # Node Outlines
     # Vectorized outline drawing for speed, specific highlights for start/fold
-    # (Reverting to loop to match old logic exactly allows individual control)
     for i in range(U):
         lw = 0.6
         ec = (80/255,80/255,80/255,0.35)
@@ -253,6 +273,17 @@ def plot_graph_static(
         if sp_nodes_set:
             ax.scatter(node_x[sp_nodes_set], node_y[sp_nodes_set], s=64, c=[(0,0,200/255,1.0)], zorder=6.5)
 
+    # Physics Shortest Path (Violet) - Zorder 7 
+    if phys_segs:
+        # Electric Violet color
+        violet_color = (180/255, 20/255, 220/255, 1.0)
+        ax.add_collection(LineCollection(phys_segs, colors=[violet_color], linewidths=3, zorder=7, label='Physics Path'))
+        
+        # Add markers for physics nodes
+        phys_nodes_set = sorted({a for a,b in physics_edge_pairs} | {b for a,b in physics_edge_pairs})
+        if phys_nodes_set:
+            ax.scatter(node_x[phys_nodes_set], node_y[phys_nodes_set], s=40, c=[violet_color], zorder=7.1)
+
     # Start Node Top Layer
     if 0 <= start_node < U:
         ax.scatter([node_x[start_node]], [node_y[start_node]],
@@ -260,7 +291,7 @@ def plot_graph_static(
 
     # Colorbar
     cbar = fig.colorbar(sc, ax=ax, fraction=0.035, pad=0.02)
-    cbar.set_label('frames')
+    cbar.set_label(cbar_label)
 
     ax.set_aspect('equal', adjustable='datalim')
     ax.set_xticks([]); ax.set_yticks([])
@@ -270,13 +301,30 @@ def plot_graph_static(
     dbg = f"pre_pairs={len(pre_edges)} post_pairs={len(post_edges)} shortest_pairs={len(shortest_edge_pairs)} first_fold={first_fold_frame}"
     ax.text(0.01, -0.03, dbg, transform=ax.transAxes, fontsize=9, va='top')
 
+    # Legend
+    if phys_segs:
+        from matplotlib.lines import Line2D
+        custom_lines = [Line2D([0], [0], color=(0,0,200/255), lw=4),
+                        Line2D([0], [0], color=(180/255, 20/255, 220/255), lw=3)]
+        ax.legend(custom_lines, ['Struct Path', 'Physics Path'], loc='upper right')
     plt.tight_layout()
     return fig, ax
 
 def plot_graph_widget(
-    G, pos, map_uid, 
-    start_frame=0, expand_jumps=True, show_shortest=True, count_multiplicity=False,
-    unique_maps=None, unique_indices=None, figsize=(1100, 700), palette='Viridis'
+    G, 
+    pos, 
+    map_uid, 
+    start_frame=0, 
+    expand_jumps=True, 
+    show_shortest=True, 
+    physics_path_nodes=None,
+    node_custom_color=None,
+    node_custom_color_title="Value",
+    count_multiplicity=False,
+    unique_maps=None, 
+    unique_indices=None, 
+    figsize=(1100, 700), 
+    palette='RdBu_r'
 ):
     '''
     Plots an interactive plotly notebook widget graph given networkx graph object G. 
@@ -291,10 +339,26 @@ def plot_graph_widget(
     
     map_uid = np.asarray(map_uid, dtype=int)
     U = G.number_of_nodes()
-    frame_counts = ensure_frame_counts(G, map_uid)
 
+    xs = np.array([pos[i][0] for i in range(U)])
+    ys = np.array([pos[i][1] for i in range(U)])
+
+    # 1. Size Calculation (Always based on Population/Stability)
+    frame_counts = ensure_frame_counts(G, map_uid)
     start_node = int(map_uid[start_frame]) if 0 <= start_frame < len(map_uid) else int(map_uid[0])
     folded_node = int(np.argmax(frame_counts)) if frame_counts.size else 0
+
+    # 2. Color Calculation
+    if node_custom_color is not None:
+        # Use provided physics values (e.g., Committor q)
+        node_colors = np.array(node_custom_color)
+        cbar_title = node_custom_color_title
+        hover_template = "node %{customdata}<br>frames: %{text}<br>" + f"{cbar_title}: %{{marker.color:.3f}}"
+    else:
+        # Default to frame counts
+        node_colors = frame_counts
+        cbar_title = "Frames"
+        hover_template = "node %{customdata}<br>frames: %{text}"
 
     xs = np.array([pos[i][0] for i in range(U)])
     ys = np.array([pos[i][1] for i in range(U)])
@@ -311,13 +375,12 @@ def plot_graph_widget(
             l_widths[s_node] = 4.0; l_colors[s_node] = 'black'; sizes[s_node] *= 2.0
         return sizes, l_widths, l_colors
 
-    # helper to build per-edge traces
-    def edge_traces_from_edges(edges, pos, color='rgba(200,20,20,0.9)'):
+    def edge_traces_from_edges(edges):
         traces = []
         if isinstance(edges, Counter):
             for (a,b), cnt in edges.items():
                 xa, ya = pos[a]; xb, yb = pos[b]
-                width = 2 + 1.5 * np.sqrt(cnt)   # tune constants
+                width = 2 + 1.5 * np.sqrt(cnt)
                 hover = f"{a}-{b} count={cnt}"
                 traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=width, hover=hover))
         else:
@@ -327,7 +390,6 @@ def plot_graph_widget(
         return traces
 
     node_sizes, line_widths, line_colors = node_visuals_plotly(frame_counts, start_node, folded_node)
-    
     hover_text = [f"node {i}<br>frames: {int(frame_counts[i])}" for i in range(U)]
 
     # Helper for plotly segments
@@ -418,15 +480,38 @@ def plot_graph_widget(
                 fig.add_trace(go.Scatter(x=sx, y=sy, mode='lines+markers', line=dict(color='rgba(0,0,200,1.0)', width=4), marker=dict(size=8), name='shortest'), row=1, col=1)
         except: pass
 
-    # 5. Nodes
+    # 5. Physics Shortest Path (Violet)
+    if physics_path_nodes and len(physics_path_nodes) > 1:
+        pp_pairs = [(physics_path_nodes[i], physics_path_nodes[i+1]) for i in range(len(physics_path_nodes)-1)]
+        px, py = edges_to_coords(pp_pairs)
+        if px:
+             fig.add_trace(
+                 go.Scatter(x=px, y=py, mode='lines+markers', 
+                            line=dict(color='rgb(180, 20, 220)', width=3), # Violet
+                            marker=dict(size=6, color='rgb(180, 20, 220)'),
+                            name='Physics Path'), 
+                 row=1, col=1
+             )
+
+    # 6. Nodes (UPDATED FOR CUSTOM COLOR)
     node_trace = go.Scatter(
         x=xs, y=ys, mode='markers',
-        marker=dict(size=node_sizes, color=frame_counts, colorscale=palette, showscale=True, line=dict(width=line_widths, color=line_colors)),
-        hovertext=hover_text, hoverinfo='text', customdata=np.arange(U), name='nodes'
+        marker=dict(
+            size=node_sizes, 
+            color=node_colors, 
+            colorscale=palette, 
+            colorbar=dict(title=cbar_title),
+            showscale=True, 
+            line=dict(width=line_widths, color=line_colors)
+        ),
+        text=frame_counts, # Passed to hover template
+        customdata=np.arange(U), 
+        hovertemplate=hover_template,
+        name='nodes'
     )
     fig.add_trace(node_trace, row=1, col=1)
 
-    # 6. Heatmap
+    # 7. Heatmap
     if unique_maps is not None:
         fig.add_trace(go.Heatmap(z=unique_maps[start_node], zmin=0, zmax=1), row=1, col=2)
     else:
@@ -463,6 +548,9 @@ def plot_graph_auto(
     start_frame=0,
     expand_jumps=True,
     show_shortest=True,
+    physics_path_nodes=None,
+    node_custom_color=None,
+    node_custom_color_title="custom",
     interactive=True,
     count_multiplicity=False,
     palette='Viridis',
@@ -494,6 +582,9 @@ def plot_graph_auto(
             start_frame=start_frame,
             expand_jumps=expand_jumps,
             show_shortest=show_shortest,
+            physics_path_nodes=physics_path_nodes,
+            node_custom_color=node_custom_color,
+            node_custom_color_title=node_custom_color_title,
             unique_maps=unique_maps,
             unique_indices=unique_indices,
             figsize=figsize_widget,
@@ -509,6 +600,9 @@ def plot_graph_auto(
             start_frame=start_frame,
             expand_jumps=expand_jumps,
             show_shortest=show_shortest,
+            physics_path_nodes=physics_path_nodes,
+            node_custom_color=node_custom_color,
+            node_custom_color_title=node_custom_color_title,
             figsize=figsize_static,
             node_size_range=node_size_range,
             unique_maps=unique_maps,
