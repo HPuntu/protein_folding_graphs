@@ -607,5 +607,6 @@ def plot_graph_auto(
             node_size_range=node_size_range,
             unique_maps=unique_maps,
             unique_indices=unique_indices,
+            palette=palette,
             count_multiplicity=count_multiplicity
         )

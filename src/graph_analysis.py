@@ -33,7 +33,44 @@ def transition_probabilities(G, counts_matrix=None):
 
     return P
 
-def kinetic_graph(G, P):
+def kinetic_graph_boltzmann(G, P, frame_to_uid):
+    ''' 
+    Kinetics version of the contact state graph by taking
+    the energy functional F ~ -ln(population) known
+    as Boltzmann Inversion. We can approximate this from 
+    the graph with node state counts.
+    '''
+
+    # Thermodynamic weight by boltzmann inversion
+    node_counts = pd.Series(frame_to_uid).value_counts()
+    node_list = list(G.nodes())
+
+    F = pseudo_free_energy(node_counts, node_list)
+
+    # Define Edge Weight based on Delta F
+    # Weight = max(0, F_dest - F_source) (Uphill requires work, Downhill is free)
+    W_therm = np.zeros_like(P)
+    for i, u in enumerate(node_list):
+        for j, v in enumerate(node_list):
+            if G.has_edge(u, v):
+                dF = F[v] - F[u]
+                # Standard Metropolis-like barrier
+                W_therm[i, j] = max(0, dF) + 0.1 # 0.1 is a base diffusion cost
+
+    G_kin = G.copy()
+    nodes = list(G.nodes())
+    node_idx = {n: i for i, n in enumerate(nodes)}
+
+    for u, v in G.edges():
+        i, j = node_idx[u], node_idx[v]
+        
+        # Thermodynamic Weight
+        w_t = W_therm[i, j]
+        G_kin[u][v]['weight'] = w_t
+
+    return G_kin
+
+def kinetic_graph_markov(G, P):
     ''' 
     Build a kinetic verison of the contact state graph by 
     weighting manifold edges by transition probabilities.
@@ -73,45 +110,6 @@ def pseudo_free_energy(node_counts, node_list):
         c = node_counts.get(n, 1)
         F[n] = -np.log(c / max_count) # F=0 for most populated state
     return F
-
-
-def thermodynamic_graph(G, P, frame_to_uid):
-    ''' 
-    Thermodynamic version of the contact state graph by taking
-    the energy functional F ~ -ln(population) known
-    as Boltzmann Inversion to define thermodynamic energy. We can 
-    approximate this from the graph with the node_count for
-    an enthalpic graph.
-    '''
-
-    # Thermodynamic weight by boltzmann inversion
-    node_counts = pd.Series(frame_to_uid).value_counts()
-    node_list = list(G.nodes())
-
-    F = pseudo_free_energy(node_counts, node_list)
-
-    # Define Edge Weight based on Delta F
-    # Weight = max(0, F_dest - F_source) (Uphill requires work, Downhill is free)
-    W_therm = np.zeros_like(P)
-    for i, u in enumerate(node_list):
-        for j, v in enumerate(node_list):
-            if G.has_edge(u, v):
-                dF = F[v] - F[u]
-                # Standard Metropolis-like barrier
-                W_therm[i, j] = max(0, dF) + 0.1 # 0.1 is a base diffusion cost
-
-    G_therm = G.copy()
-    nodes = list(G.nodes())
-    node_idx = {n: i for i, n in enumerate(nodes)}
-
-    for u, v in G.edges():
-        i, j = node_idx[u], node_idx[v]
-        
-        # Thermodynamic Weight
-        w_t = W_therm[i, j]
-        G_therm[u][v]['weight'] = w_t
-
-    return G_therm
 
 def physics_shortest_path(G_phys, start_node, folded_node, physics="kinetic"):
     ''' 
@@ -344,3 +342,4 @@ def compute_committor(G, start_node, folded_node, use_direct_solver=True):
 # ANALYZE TSE (Transition State Ensemble)
 # TSE is defined as states with q approx 0.5 (0.4 to 0.6)
 #tse_nodes = [n for n, q in q_values.items() if 0.4 <= q <= 0.6]
+
