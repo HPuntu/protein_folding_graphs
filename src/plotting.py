@@ -6,6 +6,7 @@ from ipywidgets import HTML, VBox
 from IPython.display import display
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 from matplotlib import cm
 from matplotlib.colors import Normalize
 from collections import Counter
@@ -106,9 +107,12 @@ def plot_graph_static(
     start_frame=0,
     expand_jumps=True,
     show_shortest=True,
-    physics_path_nodes=None,
+    show_bg=True,
+    custom_paths={},
+    custom_paths_colors=None,
     node_custom_color=None,
     node_custom_color_title="Frames",
+    folded_node=None,
     palette='RdBu_r',
     count_multiplicity=False,
     figsize=(12, 7),
@@ -191,7 +195,7 @@ def plot_graph_static(
         pre_frames = map_uid[first_unfold_frame : first_fold_frame + 1]
     pre_node_seq = compress_sequence(pre_frames)
     pre_edges = expand_seq_to_edges(G, pre_node_seq,  expand_jumps, count_multiplicity=count_multiplicity)
-
+    
     # shortest path
     shortest_edge_pairs = []
     if show_shortest:
@@ -203,12 +207,12 @@ def plot_graph_static(
         except nx.NetworkXNoPath:
             pass
 
-    # physics shortest path
-    physics_edge_pairs = []
-    if physics_path_nodes is not None and len(physics_path_nodes) > 1:
-        for i in range(len(physics_path_nodes)-1):
-            a, b = int(physics_path_nodes[i]), int(physics_path_nodes[i+1])
-            if a != b: physics_edge_pairs.append((a, b))
+    # custom shortest paths
+    paths = dict(zip(list(custom_paths.keys()), [[] for _ in range(len(custom_paths))]))
+    for path in custom_paths:
+        for i in range(len(custom_paths[path])-1):
+            a, b = int(custom_paths[path][i]), int(custom_paths[path][i+1])
+            if a != b: paths[path].append((a, b))
 
     # 6. Prepare Segments for Matplotlib
     def pairs_to_segs(pairs):
@@ -229,17 +233,19 @@ def plot_graph_static(
             widths = [2.0] * len(segs)  # old fixed widths
         return segs, widths
 
-    bg_segs = pairs_to_segs(list(G.edges()))
+    #bg_segs = pairs_to_segs(list(G.edges()))
+    temporal_edges = [(u, v) for u, v, d in G.edges(data=True) if d.get('temporal', False)]
+    bg_segs = pairs_to_segs(temporal_edges)
+
     post_segs, post_widths = pairs_and_widths_from_edges(post_edges, pos)
     pre_segs, pre_widths = pairs_and_widths_from_edges(pre_edges, pos)
     short_segs, short_widths = pairs_and_widths_from_edges(shortest_edge_pairs, pos)
-    phys_segs, _ = pairs_and_widths_from_edges(physics_edge_pairs, pos)
 
     # 7. Plotting (Exact Matplotlib commands from old function)
     fig, ax = plt.subplots(figsize=figsize)
 
     # Background (light grey)
-    if bg_segs:
+    if bg_segs and show_bg:
         ax.add_collection(LineCollection(bg_segs, colors=[(200/255,200/255,200/255,0.5)], linewidths=1.0, zorder=1))
 
     # Nodes
@@ -256,14 +262,14 @@ def plot_graph_static(
 
     # Post-fold edges (Red) - Draw BEFORE pre
     if post_segs:
-        ax.add_collection(LineCollection(post_segs, colors=[(200/255,20/255,20/255,0.9)], linewidths=post_widths, zorder=3))
+        ax.add_collection(LineCollection(post_segs, colors=[(200/255,20/255,20/255,0.6)], linewidths=post_widths, zorder=3, linestyle='--'))
         # Markers for post nodes
-        post_nodes_set = sorted({a for a,b in post_edges} | {b for a,b in post_edges})
-        if post_nodes_set:
-            ax.scatter(node_x[post_nodes_set], node_y[post_nodes_set], s=36, c=[(200/255,20/255,20/255,0.9)], zorder=3.5)
+        # post_nodes_set = sorted({a for a,b in post_edges} | {b for a,b in post_edges})
+        # if post_nodes_set:
+        #     ax.scatter(node_x[post_nodes_set], node_y[post_nodes_set], s=36, c=[(200/255,20/255,20/255,0.9)], zorder=3.5)
 
     # Pre-fold edges (Translucent Grey)
-    if pre_segs:
+    if pre_segs and show_bg:
         ax.add_collection(LineCollection(pre_segs, colors=[(150/255,150/255,150/255,0.4)], linewidths=pre_widths, zorder=4))
 
     # Shortest path (Blue)
@@ -274,20 +280,32 @@ def plot_graph_static(
             ax.scatter(node_x[sp_nodes_set], node_y[sp_nodes_set], s=64, c=[(0,0,200/255,1.0)], zorder=6.5)
 
     # Physics Shortest Path (Violet) - Zorder 7 
-    if phys_segs:
-        # Electric Violet color
-        violet_color = (180/255, 20/255, 220/255, 1.0)
-        ax.add_collection(LineCollection(phys_segs, colors=[violet_color], linewidths=3, zorder=7, label='Physics Path'))
+    if len(paths) > 0:
+        for i, path in enumerate(paths):
+            segs, _ = pairs_and_widths_from_edges(paths[path], pos)
+            # Electric Violet color
+            if custom_paths_colors:
+                custom_edge_color = custom_paths_colors[i]
+            else: 
+                if i == 0: custom_paths_colors = []
+                custom_edge_color = (180/255, 20/255, 220/255, 1.0) # electric Violet color
+                custom_paths_colors.append(custom_edge_color)
+            ax.add_collection(LineCollection(segs, colors=[custom_edge_color], linewidths=3, zorder=7, label=path))
         
-        # Add markers for physics nodes
-        phys_nodes_set = sorted({a for a,b in physics_edge_pairs} | {b for a,b in physics_edge_pairs})
-        if phys_nodes_set:
-            ax.scatter(node_x[phys_nodes_set], node_y[phys_nodes_set], s=40, c=[violet_color], zorder=7.1)
+            # Add markers for custom path nodes
+            custom_nodes_set = sorted({a for a,b in paths[path]} | {b for a,b in paths[path]})
+            if custom_nodes_set:
+                ax.scatter(node_x[custom_nodes_set], node_y[custom_nodes_set], s=40, c=[custom_edge_color], zorder=7.1)
 
     # Start Node Top Layer
     if 0 <= start_node < U:
         ax.scatter([node_x[start_node]], [node_y[start_node]],
                    s=max(160, (node_sizes[start_node]*2.0)**2), c=[(0.0,0,0,0.6)], edgecolors='black', linewidths=2.5, zorder=8)
+
+    # Folded node
+    if folded_node:
+        ax.scatter(node_x[folded_node], node_y[folded_node], 
+           c='red', s=150, marker='*', label='True Folded State', zorder=10)
 
     # Colorbar
     cbar = fig.colorbar(sc, ax=ax, fraction=0.035, pad=0.02)
@@ -302,11 +320,17 @@ def plot_graph_static(
     ax.text(0.01, -0.03, dbg, transform=ax.transAxes, fontsize=9, va='top')
 
     # Legend
-    if phys_segs:
-        from matplotlib.lines import Line2D
-        custom_lines = [Line2D([0], [0], color=(0,0,200/255), lw=4),
-                        Line2D([0], [0], color=(180/255, 20/255, 220/255), lw=3)]
-        ax.legend(custom_lines, ['Struct Path', 'Physics Path'], loc='upper right')
+    custom_lines = [Line2D([0], [0], color=(200/255,20/255,20/255,0.9), lw=3, linestyle='--')]
+    legend_labels = ['Post-fold']
+    if show_shortest: 
+        custom_lines.append(Line2D([0], [0], color=(0,0,200/255), lw=4))
+        legend_labels.append('Shortest Path')
+    if len(paths) > 0:
+        for i, path in enumerate(paths):
+            custom_lines.append(Line2D([0], [0], color=custom_paths_colors[i], lw=3))
+            legend_labels.append(path)
+    ax.legend(custom_lines, legend_labels, loc='upper right')
+
     plt.tight_layout()
     return fig, ax
 
@@ -548,7 +572,10 @@ def plot_graph_auto(
     start_frame=0,
     expand_jumps=True,
     show_shortest=True,
-    physics_path_nodes=None,
+    folded_node=None,
+    show_bg=True,
+    custom_paths={},
+    custom_paths_colors=None,
     node_custom_color=None,
     node_custom_color_title="custom",
     interactive=True,
@@ -556,7 +583,8 @@ def plot_graph_auto(
     palette='Viridis',
     figsize_widget=(1100,700),
     figsize_static=(12,7),
-    node_size_range=(8, 48)
+    node_size_range=(8, 48),
+    title=""
 ):
     '''  
     Master plotting wrapper so only one plotting function need be called. Simply specifying
@@ -582,14 +610,18 @@ def plot_graph_auto(
             start_frame=start_frame,
             expand_jumps=expand_jumps,
             show_shortest=show_shortest,
-            physics_path_nodes=physics_path_nodes,
+            folded_node=folded_node,
+            show_bg=show_bg,
+            custom_paths=custom_paths,
+            custom_paths_colors=custom_paths_colors,
             node_custom_color=node_custom_color,
             node_custom_color_title=node_custom_color_title,
             unique_maps=unique_maps,
             unique_indices=unique_indices,
             figsize=figsize_widget,
             palette=palette,
-            count_multiplicity=count_multiplicity
+            count_multiplicity=count_multiplicity,
+            title=title
         )
     else:
         # Pass all args specific to the old static logic
@@ -600,7 +632,10 @@ def plot_graph_auto(
             start_frame=start_frame,
             expand_jumps=expand_jumps,
             show_shortest=show_shortest,
-            physics_path_nodes=physics_path_nodes,
+            folded_node=folded_node,
+            show_bg=show_bg,
+            custom_paths=custom_paths,
+            custom_paths_colors=custom_paths_colors,
             node_custom_color=node_custom_color,
             node_custom_color_title=node_custom_color_title,
             figsize=figsize_static,
@@ -608,5 +643,98 @@ def plot_graph_auto(
             unique_maps=unique_maps,
             unique_indices=unique_indices,
             palette=palette,
-            count_multiplicity=count_multiplicity
+            count_multiplicity=count_multiplicity,
+            title=title
         )
+    
+def plot_energy_landscape(G, committor_map, free_energy_map, 
+                         custom_paths=None, 
+                         custom_paths_colors=None,
+                         folded_node=None,
+                         figsize=(10, 6)):
+    """
+    Projects the graph onto Thermodynamic Axes:
+    X-axis: Committor Probability (q) [Reaction Progress]
+    Y-axis: Free Energy (F) [Stability]
+    """
+    
+    # 1. Extract Coordinates for every node
+    nodes = list(G.nodes())
+    x_q = []
+    y_f = []
+    node_sizes = []
+    
+    # Check bounds for normalization
+    f_values = [free_energy_map.get(n, 0) for n in nodes]
+    min_f, max_f = min(f_values), max(f_values)
+    
+    for n in nodes:
+        q = committor_map.get(n, 0.0)
+        f = free_energy_map.get(n, 0.0)
+        
+        # Add some jitter to x so nodes at exactly same q don't overlap perfectly
+        # (Optional, but helps visibility for discrete states)
+        jitter = np.random.normal(0, 0.005) 
+        
+        x_q.append(q + jitter)
+        y_f.append(f)
+        
+        # Size nodes by stability (inverse of energy, visually)
+        # Or just fixed size. Let's use fixed size for clarity of the 'profile'
+        node_sizes.append(40)
+
+    x_q = np.array(x_q)
+    y_f = np.array(y_f)
+    
+    # 2. Setup Plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # 3. Draw Edges (grey lines in the background)
+    # This visualizes the connectivity across the barrier
+    lines = []
+    for u, v in G.edges():
+        if u in committor_map and v in committor_map:
+            xu, yu = committor_map[u], free_energy_map[u]
+            xv, yv = committor_map[v], free_energy_map[v]
+            lines.append([(xu, yu), (xv, yv)])
+            
+    lc = LineCollection(lines, colors='gray', alpha=0.15, linewidths=0.5, zorder=1)
+    ax.add_collection(lc)
+
+    # 4. Draw Nodes
+    # Color by Committor (Red=Folded, Blue=Unfolded)
+    sc = ax.scatter(x_q, y_f, c=x_q, cmap='RdBu_r', s=node_sizes, 
+                    edgecolor='k', linewidth=0.3, alpha=0.8, zorder=2)
+
+    # 5. Highlight Physics Path (Violet)
+    # This shows exactly how the optimal path traverses the barrier
+    if custom_paths:
+        for i, path in enumerate(custom_paths):
+            # Draw the line
+            path_x = [committor_map[n] for n in custom_paths[path]]
+            path_y = [free_energy_map[n] for n in custom_paths[path]]
+            if custom_paths_colors:
+                path_color = custom_paths_colors[i]
+            else: path_color = "violet"
+            ax.plot(path_x, path_y, color=path_color, linewidth=3, label=path, zorder=3)
+            ax.scatter(path_x, path_y, color=path_color, s=20, zorder=4)
+
+    if folded_node:
+        ax.scatter(x_q[folded_node], y_f[folded_node], 
+            c='red', s=150, marker='*', label='True Folded State', zorder=10)
+
+    # 6. Formatting
+    ax.set_xlabel("Reaction Coordinate $q$ (Committor Probability)")
+    ax.set_ylabel("Free Energy $F$ ($k_B T$)")
+    ax.set_title("Projected Free Energy Landscape")
+    
+    # Add helper text
+    ax.text(0.05, 0.3, "Unfolded Basin", transform=ax.transAxes, ha='left', va='top', fontweight='bold', color='blue')
+    ax.text(0.95, 0.95, "Folded Basin", transform=ax.transAxes, ha='right', va='top', fontweight='bold', color='red')
+    ax.text(0.5, 0.05, "Transition Barrier", transform=ax.transAxes, ha='center', va='bottom', fontweight='bold', alpha=0.5)
+
+    cbar = plt.colorbar(sc)
+    cbar.set_label("Folding Prob ($q$)")
+    ax.legend(loc='upper center')
+    
+    return fig, ax
