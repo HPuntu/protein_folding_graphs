@@ -108,6 +108,7 @@ def plot_graph_static(
     expand_jumps=True,
     show_shortest=True,
     show_bg=True,
+    post_fold_red=True,
     custom_paths={},
     custom_paths_colors=None,
     node_custom_color=None,
@@ -261,7 +262,7 @@ def plot_graph_static(
         ax.scatter([node_x[i]], [node_y[i]], s=max(1, node_sizes[i]**2), facecolors='none', edgecolors=[ec], linewidths=lw, zorder=2.1)
 
     # Post-fold edges (Red) - Draw BEFORE pre
-    if post_segs:
+    if post_segs and post_fold_red:
         ax.add_collection(LineCollection(post_segs, colors=[(200/255,20/255,20/255,0.6)], linewidths=post_widths, zorder=3, linestyle='--'))
         # Markers for post nodes
         # post_nodes_set = sorted({a for a,b in post_edges} | {b for a,b in post_edges})
@@ -320,8 +321,11 @@ def plot_graph_static(
     ax.text(0.01, -0.03, dbg, transform=ax.transAxes, fontsize=9, va='top')
 
     # Legend
-    custom_lines = [Line2D([0], [0], color=(200/255,20/255,20/255,0.9), lw=3, linestyle='--')]
-    legend_labels = ['Post-fold']
+    custom_lines = []
+    legend_labels = []
+    if post_fold_red:
+        custom_lines.append(Line2D([0], [0], color=(200/255,20/255,20/255,0.9), lw=3, linestyle='--'))
+        legend_labels.append('Post-fold')
     if show_shortest: 
         custom_lines.append(Line2D([0], [0], color=(0,0,200/255), lw=4))
         legend_labels.append('Shortest Path')
@@ -574,6 +578,7 @@ def plot_graph_auto(
     show_shortest=True,
     folded_node=None,
     show_bg=True,
+    post_fold_red=True,
     custom_paths={},
     custom_paths_colors=None,
     node_custom_color=None,
@@ -634,6 +639,7 @@ def plot_graph_auto(
             show_shortest=show_shortest,
             folded_node=folded_node,
             show_bg=show_bg,
+            post_fold_red=post_fold_red,
             custom_paths=custom_paths,
             custom_paths_colors=custom_paths_colors,
             node_custom_color=node_custom_color,

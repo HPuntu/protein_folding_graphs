@@ -189,3 +189,161 @@ def embed_and_cluster_by_hamming(ints,
 
     return X_emb, labels, D
 
+
+
+
+
+# For larger proteins
+
+# import networkx as nx 
+
+# X_emb, labels, _ = embed_and_cluster_scalable(
+#     ints,
+#     n_components_pca=50,
+#     min_cluster_size=500  # Adjust based on desired granularity
+# )
+# pos = {i: (float(X_emb[i, 0]), float(X_emb[i, 1])) for i in range(X_emb.shape[0])}
+
+# G_clustered = build_cluster_graph_robust(G, labels)
+
+# cluster_counts = Counter(labels)
+
+# # --- Step B: Calculate Cluster Centroids (New Positions) ---
+# # We compute the center of each cluster in the UMAP space
+# cluster_pos = {}
+# for lab in G_clustered.nodes():
+#     # Find indices of all micro-states in this cluster
+#     indices = [i for i, x in enumerate(labels) if x == lab]
+#     # Average their UMAP positions
+#     centroid = X_emb[indices].mean(axis=0)
+#     cluster_pos[lab] = (centroid[0], centroid[1])
+
+# cluster_trajectory = []
+# for micro_node_id in frame_to_uid:
+#     if micro_node_id < len(labels):
+#         cluster_id = labels[micro_node_id]
+#         if cluster_id != -1: # Skip noise frames
+#             cluster_trajectory.append(cluster_id)
+#         else:
+#             # If noise, we just repeat the last valid cluster or skip
+#             if cluster_trajectory: cluster_trajectory.append(cluster_trajectory[-1])
+#             else: cluster_trajectory.append(0) 
+
+# if -1 in cluster_counts: del cluster_counts[-1]
+# folded_cluster = cluster_counts.most_common(1)[0][0]
+# start_cluster = cluster_trajectory[0]
+
+# shortest_cluster_path = nx.shortest_path(G_clustered, start_cluster, folded_cluster)
+
+# custom_paths = {
+#     "shortest_cluster_path": shortest_cluster_path
+# }
+# custom_paths_colors = [(0,0,200/255,1.0)]
+
+# fig, ax = plotting.plot_graph_auto(
+#     G=G_clustered,                 # The small 50-node graph
+#     map_uid=cluster_trajectory,    # The trajectory converted to cluster IDs
+#     pos=cluster_pos,               # Centroids of clusters
+#     start_frame=0,
+#     folded_node=folded_node,
+#     post_fold_red=False,
+#     node_size_range=(8, 48),     # Bigger nodes for clusters
+#     title="lambda Repressor Clustered and MDS Embedded",
+#     custom_paths=custom_paths,
+#     custom_paths_colors=custom_paths_colors,
+#     palette="viridis_r",
+#     interactive=False,              # Static for publication
+#     show_shortest=False,           # Disable first to ensure basic plotting works
+#     expand_jumps=True              # Draws connections between temporal cluster jumps
+# )
+
+# plt.savefig("images/lambda_repressor_clustered_and_mds_embdedded.png")
+
+
+# q_values = graph_analysis.compute_committor(G_clustered, start_cluster, folded_cluster, use_direct_solver=True)
+
+# nx.set_node_attributes(G_clustered, q_values, 'committor')
+
+# nodes = list(G_clustered.nodes())
+# node_colors_q = [G_clustered.nodes[i].get('committor', 0.0) for i in range(len(nodes))]
+
+# fig, ax = plotting.plot_graph_auto(
+#     G=G_clustered,                 # The small 50-node graph
+#     map_uid=cluster_trajectory,    # The trajectory converted to cluster IDs
+#     pos=cluster_pos,               # Centroids of clusters
+#     start_frame=0,
+#     folded_node=folded_node,
+#     post_fold_red=False,
+#     node_size_range=(8, 48),     # Bigger nodes for clusters
+#     title="lambda Repressor Clustered and MDS Embedded",
+#     custom_paths=custom_paths,
+#     palette="RdBu",
+#     interactive=False,              # Static for publication
+#     show_shortest=False,           # Disable first to ensure basic plotting works
+#     expand_jumps=True,              # Draws connections between temporal cluster jumps
+#     node_custom_color=node_colors_q,
+#     node_custom_color_title="q",
+# )
+
+# committor_map = calculate_committor_cluster(G_clustered, start_cluster, folded_cluster)
+
+# print(f"Committor calculated for {len(committor_map)} clusters.")
+# print(f"Start q: {committor_map[start_cluster]}")
+# print(f"Folded q: {committor_map[folded_cluster]}")
+
+# from collections import Counter
+# true_counts = Counter(labels)
+
+# # 2. Inject these counts back into your Graph nodes
+# # We also filter out nodes that might exist in the graph but have 0 population (ghosts)
+# nodes_to_remove = []
+
+# for node in G_clustered.nodes():
+#     # Get count from the original data (default to 1 to avoid log(0) errors)
+#     count = true_counts.get(node, 0)
+    
+#     if count == 0:
+#         nodes_to_remove.append(node)
+#     else:
+#         # Update the graph attribute
+#         G_clustered.nodes[node]['size'] = count
+#         G_clustered.nodes[node]['population_fraction'] = count / len(labels)
+
+# # Clean up ghost nodes
+# G_clustered.remove_nodes_from(nodes_to_remove)
+
+# print(f"Updated population data for {G_clustered.number_of_nodes()} clusters.")
+
+# # 3. Check the spread
+# sizes = [d['size'] for n, d in G_clustered.nodes(data=True)]
+
+# total_frames = sum(sizes)
+# free_energy_map = {}
+
+# for i, n in enumerate(G_clustered.nodes):
+#     pop = sizes[i]
+#     # Avoid log(0)
+#     if pop > 0:
+#         free_energy_map[n] = -np.log(pop) 
+#     else:
+#         free_energy_map[n] = 10 # High energy for empty states
+
+# # 2. Extract Data for Plotting
+# x_q = []
+# y_F = []
+
+# for n in G_clustered.nodes():
+#     x_q.append(committor_map.get(n, 0))
+#     y_F.append(free_energy_map.get(n, 10))
+
+# # 3. Plot
+# plt.figure(figsize=(10, 6))
+# sc = plt.scatter(x_q, y_F, s=sizes, c=x_q, cmap='RdBu_r', alpha=0.7, edgecolors='grey')
+# plt.xlabel("Committor Probability (q)")
+# plt.ylabel("Free Energy (-ln P)")
+# plt.title("Projected Free Energy Landscape on Reaction Coordinates")
+# plt.colorbar(sc, label="Reaction Progress")
+# plt.grid(True, alpha=0.3)
+
+# plt.savefig("images/lambda_repressor_reaction_coordinates_pseudo_f.png")
+# plt.show()
