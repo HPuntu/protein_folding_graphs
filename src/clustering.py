@@ -131,11 +131,12 @@ def embed_and_cluster_by_hamming(ints,
                                  n_clusters=None,      # only for agglomerative
                                  random_state=42,
                                  warn_threshold=4000):
-    """
-    Computes Hamming distance matrix from ints, embed it, and clusters on that distance.
-    Uses Multidimensional Scaling (MDS) by default to embed nodes by relative 
-    Hamming distance, and agglomerative clustering. Slow for large U.
-    """
+    ''' 
+    Instead of embedding with PCA/UMAP we get a matrix of 
+    hamming distances for every pair of integers in a list
+    of integer representations for each frame in a trajectory then
+    use MDS to embed this into 2D.
+    '''
     ints = list(map(int, ints))
     U = len(ints)
     if U == 0:
@@ -144,26 +145,24 @@ def embed_and_cluster_by_hamming(ints,
     if U > warn_threshold:
         warnings.warn(f"U={U} large: pairwise Hamming (U^2) will be expensive and memory-heavy.", UserWarning)
 
-    # 1) exact pairwise Hamming distances
-    D = pairwise_hamming_matrix(ints)   # shape (U, U), dtype=int
+    # pairwise Hamming distances
+    D = pairwise_hamming_matrix(ints) 
 
-    # 2) embedding
     # reduce n_components to feasible size (<= U-1)
     nc = min(n_components, max(1, U-1))
     if embed_method == 'mds':
         # classical MDS-like metric MDS on precomputed distances
         mds = MDS(n_components=nc, dissimilarity='precomputed', random_state=random_state)
         X_emb = mds.fit_transform(D.astype(float))
-    elif embed_method == 'spectral':
-        # spectral embedding requires affinity: convert distances -> affinity via RBF with sigma
-        # choose sigma = median nonzero distance (safe heuristic)
+    elif embed_method == 'spectral': # option for spectral embedding instead
+        # requires affinity: convert distances -> affinity via a radial basis function
         tri = D[np.triu_indices(U, k=1)]
         nz = tri[tri > 0]
         if nz.size:
             sigma = float(np.median(nz))
         else:
             sigma = 1.0
-        # affinity = exp(-D**2 / (2*sigma^2)); use float
+        # affinity = exp(-D**2 / (2*sigma^2))
         A = np.exp(-(D.astype(float)**2) / (2.0 * (sigma**2)))
         se = SpectralEmbedding(n_components=nc, affinity='precomputed', random_state=random_state)
         X_emb = se.fit_transform(A)
@@ -174,14 +173,13 @@ def embed_and_cluster_by_hamming(ints,
     labels = None
     if cluster_method == 'agglomerative':
         if n_clusters is None:
-            # heuristic: choose sqrt(U) clusters if not provided
+            # sqrt(U) clusters if not provided
             n_clusters = max(2, int(np.sqrt(U)))
-        # Agglomerative with precomputed distances (average linkage works with distances)
+        # Agglomerative with precomputed distances
         agg = AgglomerativeClustering(n_clusters=n_clusters, metric='precomputed', linkage='average')
         labels = agg.fit_predict(D)
     elif cluster_method == 'hdbscan':
-        # HDBSCAN supports precomputed distances by passing metric='precomputed'
-        # It expects a condensed distance matrix for some versions; but passing the full matrix works.
+        # HDBSCAN with our precomputed matix
         cl = hdbscan.HDBSCAN(metric='precomputed', min_cluster_size=15)
         labels = cl.fit_predict(D)
     else:

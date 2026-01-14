@@ -6,7 +6,11 @@ from collections import Counter
 # Graph builders
 
 def temporal_edge_counts(map_uid, keep_self_loops=False):
-    ''''''
+    '''
+    Given a trajectory (list) of contact maps in their unique
+    integer form get temporal adjacency counts for every 
+    visited pair of map integers.
+    '''
     map_uid = np.asarray(map_uid, dtype=int)
     F = len(map_uid)
     if F < 2:
@@ -41,6 +45,8 @@ def build_temporal_transition_graph(map_uid, unique_indices, keep_self_loops=Fal
     Builds a graph where unique contact map nodes are connected if they are adjacent 
     (befor or after) in temporal sequence in the trajectory of contact maps for any of
     their instances in the trajectory.
+
+    map_uids is a list of unique contact map node ids
     '''
     map_uid = np.asarray(map_uid, dtype=int)
     F = len(map_uid)
@@ -59,7 +65,7 @@ def build_temporal_transition_graph(map_uid, unique_indices, keep_self_loops=Fal
     for (i, j), meta in edge_info.items():
         G.add_edge(i, j, weight=meta['count'], first_frame=meta['first_frame'])
 
-    # node attributes
+    # add as node attributes
     for n in range(U):
         G.nodes[n]['frame_count'] = int(node_counts[n])
         G.nodes[n]['rep_frame'] = int(unique_indices[n]) if n < len(unique_indices) else -1
@@ -109,7 +115,10 @@ def build_graph_pairwise(ints):
 def build_contact_manifold_graph(ints, Mbits, method='auto'):
     '''  
     Wrap around of the two different perfomance-based computations of
-    contact-space node neighborhoos.
+    contact-space node neighborhoods.
+
+    ints is a list of unique contact map integer representations for
+    each frame in the trajectory.
     '''
     U = len(ints)
 
@@ -126,17 +135,14 @@ def build_contact_manifold_graph(ints, Mbits, method='auto'):
     return G, ints
 
 def merge_manifold_and_temporal(Gm, temporal_edge_data):
-    """
-    Merge manifold graph Gm with temporal_edge_data:
-      temporal_edge_data: dict keyed by (a,b) with {'count':int, 'first_frame':int}
-    Returns a new Graph G with node attrs copied from Gm and edges annotated:
-      - etype: 'manifold' / 'temporal' / 'both'
-      - manifold: bool
-      - temporal: bool
-      - manifold_weight: original manifold edge weight (or None)
-      - temp_count: temporal count (0 if absent)
-      - first_frame: temporal first_frame (None if absent)
-    """
+    '''
+    Given a manifold graph (edges connect nodes with hamming
+    distance 1 - one contact flip), and temporal adjacency
+    counts for those nodes as edge data, merge into a 
+    graph by taking the union of the two sets of edges
+    and adding edge attributes of temporal counts for
+    temporal edges.
+    '''
     G = nx.Graph()
     # copy nodes (with attrs)
     G.add_nodes_from((n, dict(d)) for n, d in Gm.nodes(data=True))

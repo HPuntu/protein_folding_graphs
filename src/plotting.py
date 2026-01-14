@@ -12,6 +12,8 @@ from matplotlib.colors import Normalize
 from collections import Counter
 
 
+# Collection of graph plotting functions
+
 def ensure_frame_counts(G, map_uid):
     '''  
     Helper to check our Graph's nodes have associated frame_count attributes
@@ -138,34 +140,35 @@ def plot_graph_static(
     U = G.number_of_nodes()
     F = len(map_uid)
 
-    # 1. Frame counts for node size
+    # frame counts for node size
     frame_counts = ensure_frame_counts(G, map_uid)
 
-    # 2. Determine Color Data
+    # node colors and legend bar
     if node_custom_color is not None:
         node_colors = np.array(node_custom_color)
         cbar_label = node_custom_color_title
     else:
         node_colors = frame_counts
         cbar_label = "Frames (Population)"
-        palette = 'viridis' # Default to viridis if showing counts
+        palette = 'viridis' # default is viridis
     
-    # 2. Determine Start and Folded Nodes
+    # start node is just first frame and folded node is node with most counts
     start_node = int(map_uid[start_frame]) if 0 <= start_frame < F else int(map_uid[0])
     folded_node = int(np.argmax(frame_counts))
 
-    # 3. Handle Positions (Priority: pos -> X_emb -> spring)
+    # pos provided from an embedding in arguments but if not we can
+    # extract them from the embedding if that's provided
     if pos is None:
         if X_emb is not None:
             X_emb = np.asarray(X_emb)
             pos = {i: (float(X_emb[i,0]), float(X_emb[i,1])) for i in range(U)}
-        else:
+        else: # if no pos or emb just normal networkx algorithm
             pos = nx.spring_layout(G, seed=42)
     
     node_x = np.array([pos[i][0] for i in range(U)])
     node_y = np.array([pos[i][1] for i in range(U)])
 
-    # 4. Node Sizes
+    # node sizes are frame counts
     min_size, max_size = node_size_range
     node_sizes = min_size + (frame_counts / max(1, frame_counts.max())) * (max_size - min_size)
     if 0 <= folded_node < U:
@@ -173,7 +176,7 @@ def plot_graph_static(
     if 0 <= start_node < U:
         node_sizes[start_node] *= 2.0
 
-    # 5. Logic to split sequence into Pre and Post (Exact old logic)
+    # Logic to split sequence into Pre and Post 
     try:
         first_unfold_frame = int(np.where(map_uid == start_node)[0][0])
     except IndexError:
@@ -182,14 +185,16 @@ def plot_graph_static(
     later_idx = np.where(map_uid[first_unfold_frame:] == folded_node)[0]
     first_fold_frame = None if later_idx.size == 0 else int(first_unfold_frame + later_idx[0])
 
-    # -- Post Sequence --
+    # EDGES
+    # -----
+    # post folded node
     if first_fold_frame is None or first_fold_frame + 1 >= F:
         post_node_seq = []
     else:
         post_node_seq = compress_sequence(map_uid[first_fold_frame + 1 :])
     post_edges = expand_seq_to_edges(G, post_node_seq, expand_jumps, count_multiplicity=count_multiplicity)
 
-    # -- Pre Sequence --
+    # pre folded node
     if first_fold_frame is None:
         pre_frames = map_uid[first_unfold_frame : ]
     else:
@@ -197,7 +202,7 @@ def plot_graph_static(
     pre_node_seq = compress_sequence(pre_frames)
     pre_edges = expand_seq_to_edges(G, pre_node_seq,  expand_jumps, count_multiplicity=count_multiplicity)
     
-    # shortest path
+    # shortest path (manifold and temporal)
     shortest_edge_pairs = []
     if show_shortest:
         try:
@@ -208,14 +213,14 @@ def plot_graph_static(
         except nx.NetworkXNoPath:
             pass
 
-    # custom shortest paths
+    # custom shortest paths (from args)
     paths = dict(zip(list(custom_paths.keys()), [[] for _ in range(len(custom_paths))]))
     for path in custom_paths:
         for i in range(len(custom_paths[path])-1):
             a, b = int(custom_paths[path][i]), int(custom_paths[path][i+1])
             if a != b: paths[path].append((a, b))
 
-    # 6. Prepare Segments for Matplotlib
+    # helpers to prepare the edge segments for matplotlib
     def pairs_to_segs(pairs):
         return [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for a,b in pairs]
 
@@ -242,73 +247,68 @@ def plot_graph_static(
     pre_segs, pre_widths = pairs_and_widths_from_edges(pre_edges, pos)
     short_segs, short_widths = pairs_and_widths_from_edges(shortest_edge_pairs, pos)
 
-    # 7. Plotting (Exact Matplotlib commands from old function)
+    # Plotting
+    # --------
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Background (light grey)
+    # Background edges are light grey
     if bg_segs and show_bg:
         ax.add_collection(LineCollection(bg_segs, colors=[(200/255,200/255,200/255,0.5)], linewidths=1.0, zorder=1))
 
-    # Nodes
+    # scatter nodes
     sc = ax.scatter(node_x, node_y, s=node_sizes**2, c=node_colors, cmap=palette, edgecolors='none', zorder=2)
 
-    # Node Outlines
-    # Vectorized outline drawing for speed, specific highlights for start/fold
+    # node outlines
     for i in range(U):
         lw = 0.6
         ec = (80/255,80/255,80/255,0.35)
-        if i == start_node: lw = 4.0; ec = (0,0,0,1)
-        # Note: Old function had commented out folded_node outline, keeping that logic
+        if i == start_node: lw = 4.0; ec = (0,0,0,1) # special outline for start node (black)
         ax.scatter([node_x[i]], [node_y[i]], s=max(1, node_sizes[i]**2), facecolors='none', edgecolors=[ec], linewidths=lw, zorder=2.1)
 
-    # Post-fold edges (Red) - Draw BEFORE pre
+    # draw pos-fold edges (red)
     if post_segs and post_fold_red:
         ax.add_collection(LineCollection(post_segs, colors=[(200/255,20/255,20/255,0.6)], linewidths=post_widths, zorder=3, linestyle='--'))
-        # Markers for post nodes
-        # post_nodes_set = sorted({a for a,b in post_edges} | {b for a,b in post_edges})
-        # if post_nodes_set:
-        #     ax.scatter(node_x[post_nodes_set], node_y[post_nodes_set], s=36, c=[(200/255,20/255,20/255,0.9)], zorder=3.5)
 
-    # Pre-fold edges (Translucent Grey)
+    # draw pre-fold background edges (grey)
     if pre_segs and show_bg:
         ax.add_collection(LineCollection(pre_segs, colors=[(150/255,150/255,150/255,0.4)], linewidths=pre_widths, zorder=4))
 
-    # Shortest path (Blue)
+    # shortest path edges in blue
     if short_segs:
         ax.add_collection(LineCollection(short_segs, colors=[(0,0,200/255,1.0)], linewidths=3, zorder=6))
         sp_nodes_set = sorted({a for a,b in shortest_edge_pairs} | {b for a,b in shortest_edge_pairs})
         if sp_nodes_set:
             ax.scatter(node_x[sp_nodes_set], node_y[sp_nodes_set], s=64, c=[(0,0,200/255,1.0)], zorder=6.5)
 
-    # Physics Shortest Path (Violet) - Zorder 7 
+    # any custom paths and their associated colors (args) or default color to biolet
     if len(paths) > 0:
         for i, path in enumerate(paths):
             segs, _ = pairs_and_widths_from_edges(paths[path], pos)
-            # Electric Violet color
-            if custom_paths_colors:
+        
+            if custom_paths_colors: # custom color
                 custom_edge_color = custom_paths_colors[i]
-            else: 
+            else: # default to violet
                 if i == 0: custom_paths_colors = []
-                custom_edge_color = (180/255, 20/255, 220/255, 1.0) # electric Violet color
+                custom_edge_color = (180/255, 20/255, 220/255, 1.0) 
                 custom_paths_colors.append(custom_edge_color)
             ax.add_collection(LineCollection(segs, colors=[custom_edge_color], linewidths=3, zorder=7, label=path))
         
-            # Add markers for custom path nodes
+            # add markers for custom path nodes
             custom_nodes_set = sorted({a for a,b in paths[path]} | {b for a,b in paths[path]})
             if custom_nodes_set:
                 ax.scatter(node_x[custom_nodes_set], node_y[custom_nodes_set], s=40, c=[custom_edge_color], zorder=7.1)
 
-    # Start Node Top Layer
+    # overlay on start node (black)
     if 0 <= start_node < U:
         ax.scatter([node_x[start_node]], [node_y[start_node]],
                    s=max(160, (node_sizes[start_node]*2.0)**2), c=[(0.0,0,0,0.6)], edgecolors='black', linewidths=2.5, zorder=8)
 
-    # Folded node
+    # folded node with red star
     if folded_node:
         ax.scatter(node_x[folded_node], node_y[folded_node], 
            c='red', s=150, marker='*', label='True Folded State', zorder=10)
 
-    # Colorbar
+    # colorbar 
     cbar = fig.colorbar(sc, ax=ax, fraction=0.035, pad=0.02)
     cbar.set_label(cbar_label)
 
@@ -316,11 +316,11 @@ def plot_graph_static(
     ax.set_xticks([]); ax.set_yticks([])
     ax.set_title(title)
 
-    # Debug Text
+    # debug text
     dbg = f"pre_pairs={len(pre_edges)} post_pairs={len(post_edges)} shortest_pairs={len(shortest_edge_pairs)} first_fold={first_fold_frame}"
     ax.text(0.01, -0.03, dbg, transform=ax.transAxes, fontsize=9, va='top')
 
-    # Legend
+    # legend
     custom_lines = []
     legend_labels = []
     if post_fold_red:
@@ -338,233 +338,236 @@ def plot_graph_static(
     plt.tight_layout()
     return fig, ax
 
-def plot_graph_widget(
-    G, 
-    pos, 
-    map_uid, 
-    start_frame=0, 
-    expand_jumps=True, 
-    show_shortest=True, 
-    physics_path_nodes=None,
-    node_custom_color=None,
-    node_custom_color_title="Value",
-    count_multiplicity=False,
-    unique_maps=None, 
-    unique_indices=None, 
-    figsize=(1100, 700), 
-    palette='RdBu_r'
-):
-    '''
-    Plots an interactive plotly notebook widget graph given networkx graph object G. 
-    Nodes can be clicked to reveal a heatmap of their contact map on the right hand side.
-    Highlights post-folded state (most occupied node) edges red and the shortest
-    path edges blue. Node sizes correspond to counts in the trajectory and nodes are
-    coloured by their first frame's index in the trajectory.
+def plot_graph_widget():
+    return
+# TO DO NEEDS UPDATING WITH FUNCTIONALITY OF STATIC VERSION
+# def plot_graph_widget(
+#     G, 
+#     pos, 
+#     map_uid, 
+#     start_frame=0, 
+#     expand_jumps=True, 
+#     show_shortest=True, 
+#     physics_path_nodes=None,
+#     node_custom_color=None,
+#     node_custom_color_title="Value",
+#     count_multiplicity=False,
+#     unique_maps=None, 
+#     unique_indices=None, 
+#     figsize=(1100, 700), 
+#     palette='RdBu_r'
+# ):
+#     '''
+#     Plots an interactive plotly notebook widget graph given networkx graph object G. 
+#     Nodes can be clicked to reveal a heatmap of their contact map on the right hand side.
+#     Highlights post-folded state (most occupied node) edges red and the shortest
+#     path edges blue. Node sizes correspond to counts in the trajectory and nodes are
+#     coloured by their first frame's index in the trajectory.
 
-    pos can be provided to set node positions from say a clustering projection/embedding.
-    Or X_emb can be provided instead of pos (usually when generated by clustering).
-    '''
+#     pos can be provided to set node positions from say a clustering projection/embedding.
+#     Or X_emb can be provided instead of pos (usually when generated by clustering).
+#     '''
     
-    map_uid = np.asarray(map_uid, dtype=int)
-    U = G.number_of_nodes()
+#     map_uid = np.asarray(map_uid, dtype=int)
+#     U = G.number_of_nodes()
 
-    xs = np.array([pos[i][0] for i in range(U)])
-    ys = np.array([pos[i][1] for i in range(U)])
+#     xs = np.array([pos[i][0] for i in range(U)])
+#     ys = np.array([pos[i][1] for i in range(U)])
 
-    # 1. Size Calculation (Always based on Population/Stability)
-    frame_counts = ensure_frame_counts(G, map_uid)
-    start_node = int(map_uid[start_frame]) if 0 <= start_frame < len(map_uid) else int(map_uid[0])
-    folded_node = int(np.argmax(frame_counts)) if frame_counts.size else 0
+#     # 1. Size Calculation (Always based on Population/Stability)
+#     frame_counts = ensure_frame_counts(G, map_uid)
+#     start_node = int(map_uid[start_frame]) if 0 <= start_frame < len(map_uid) else int(map_uid[0])
+#     folded_node = int(np.argmax(frame_counts)) if frame_counts.size else 0
 
-    # 2. Color Calculation
-    if node_custom_color is not None:
-        # Use provided physics values (e.g., Committor q)
-        node_colors = np.array(node_custom_color)
-        cbar_title = node_custom_color_title
-        hover_template = "node %{customdata}<br>frames: %{text}<br>" + f"{cbar_title}: %{{marker.color:.3f}}"
-    else:
-        # Default to frame counts
-        node_colors = frame_counts
-        cbar_title = "Frames"
-        hover_template = "node %{customdata}<br>frames: %{text}"
+#     # 2. Color Calculation
+#     if node_custom_color is not None:
+#         # Use provided physics values (e.g., Committor q)
+#         node_colors = np.array(node_custom_color)
+#         cbar_title = node_custom_color_title
+#         hover_template = "node %{customdata}<br>frames: %{text}<br>" + f"{cbar_title}: %{{marker.color:.3f}}"
+#     else:
+#         # Default to frame counts
+#         node_colors = frame_counts
+#         cbar_title = "Frames"
+#         hover_template = "node %{customdata}<br>frames: %{text}"
 
-    xs = np.array([pos[i][0] for i in range(U)])
-    ys = np.array([pos[i][1] for i in range(U)])
+#     xs = np.array([pos[i][0] for i in range(U)])
+#     ys = np.array([pos[i][1] for i in range(U)])
 
-    # Visual helpers
-    def node_visuals_plotly(counts, s_node, f_node):
-        denom = counts.max() if counts.max() > 0 else 1.0
-        sizes = 8 + (counts / denom) * 40
-        l_widths = np.full(len(sizes), 0.6)
-        l_colors = ['rgba(80,80,80,0.35)'] * len(sizes)
-        if 0 <= f_node < len(sizes):
-            l_widths[f_node] = 3.0; l_colors[f_node] = 'black'; sizes[f_node] *= 1.35
-        if 0 <= s_node < len(sizes):
-            l_widths[s_node] = 4.0; l_colors[s_node] = 'black'; sizes[s_node] *= 2.0
-        return sizes, l_widths, l_colors
+#     # Visual helpers
+#     def node_visuals_plotly(counts, s_node, f_node):
+#         denom = counts.max() if counts.max() > 0 else 1.0
+#         sizes = 8 + (counts / denom) * 40
+#         l_widths = np.full(len(sizes), 0.6)
+#         l_colors = ['rgba(80,80,80,0.35)'] * len(sizes)
+#         if 0 <= f_node < len(sizes):
+#             l_widths[f_node] = 3.0; l_colors[f_node] = 'black'; sizes[f_node] *= 1.35
+#         if 0 <= s_node < len(sizes):
+#             l_widths[s_node] = 4.0; l_colors[s_node] = 'black'; sizes[s_node] *= 2.0
+#         return sizes, l_widths, l_colors
 
-    def edge_traces_from_edges(edges):
-        traces = []
-        if isinstance(edges, Counter):
-            for (a,b), cnt in edges.items():
-                xa, ya = pos[a]; xb, yb = pos[b]
-                width = 2 + 1.5 * np.sqrt(cnt)
-                hover = f"{a}-{b} count={cnt}"
-                traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=width, hover=hover))
-        else:
-            for a,b in edges:
-                xa, ya = pos[a]; xb, yb = pos[b]
-                traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=3, hover=''))
-        return traces
+#     def edge_traces_from_edges(edges):
+#         traces = []
+#         if isinstance(edges, Counter):
+#             for (a,b), cnt in edges.items():
+#                 xa, ya = pos[a]; xb, yb = pos[b]
+#                 width = 2 + 1.5 * np.sqrt(cnt)
+#                 hover = f"{a}-{b} count={cnt}"
+#                 traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=width, hover=hover))
+#         else:
+#             for a,b in edges:
+#                 xa, ya = pos[a]; xb, yb = pos[b]
+#                 traces.append(dict(x=[xa, xb, None], y=[ya, yb, None], width=3, hover=''))
+#         return traces
 
-    node_sizes, line_widths, line_colors = node_visuals_plotly(frame_counts, start_node, folded_node)
-    hover_text = [f"node {i}<br>frames: {int(frame_counts[i])}" for i in range(U)]
+#     node_sizes, line_widths, line_colors = node_visuals_plotly(frame_counts, start_node, folded_node)
+#     hover_text = [f"node {i}<br>frames: {int(frame_counts[i])}" for i in range(U)]
 
-    # Helper for plotly segments
-    def edges_to_coords(pairs):
-        x, y = [], []
-        for a, b in pairs:
-            x += [pos[a][0], pos[b][0], None]
-            y += [pos[a][1], pos[b][1], None]
-        return x, y
+#     # Helper for plotly segments
+#     def edges_to_coords(pairs):
+#         x, y = [], []
+#         for a, b in pairs:
+#             x += [pos[a][0], pos[b][0], None]
+#             y += [pos[a][1], pos[b][1], None]
+#         return x, y
 
-    # Edges
-    bg_pairs = list(G.edges())
-    bg_x, bg_y = edges_to_coords(bg_pairs)
+#     # Edges
+#     bg_pairs = list(G.edges())
+#     bg_x, bg_y = edges_to_coords(bg_pairs)
 
-    # --- Pre/Post Logic (Replicated from Static for consistency) ---
-    try:
-        first_unfold_frame = int(np.where(map_uid == start_node)[0][0])
-    except IndexError:
-        first_unfold_frame = 0
-    later_idx = np.where(map_uid[first_unfold_frame:] == folded_node)[0]
-    first_fold_frame = None if later_idx.size == 0 else int(first_unfold_frame + later_idx[0])
+#     # --- Pre/Post Logic (Replicated from Static for consistency) ---
+#     try:
+#         first_unfold_frame = int(np.where(map_uid == start_node)[0][0])
+#     except IndexError:
+#         first_unfold_frame = 0
+#     later_idx = np.where(map_uid[first_unfold_frame:] == folded_node)[0]
+#     first_fold_frame = None if later_idx.size == 0 else int(first_unfold_frame + later_idx[0])
 
-    if first_fold_frame is None or first_fold_frame + 1 >= len(map_uid):
-        post_seq = []
-    else:
-        post_seq = compress_sequence(map_uid[first_fold_frame+1:])
-    post_edges = expand_seq_to_edges(G, post_seq, expand_jumps, count_multiplicity=count_multiplicity)
-    #post_x, post_y = edge_traces_from_edges(post_pairs, pos, count_multiplicity=count_multiplicity)
+#     if first_fold_frame is None or first_fold_frame + 1 >= len(map_uid):
+#         post_seq = []
+#     else:
+#         post_seq = compress_sequence(map_uid[first_fold_frame+1:])
+#     post_edges = expand_seq_to_edges(G, post_seq, expand_jumps, count_multiplicity=count_multiplicity)
+#     #post_x, post_y = edge_traces_from_edges(post_pairs, pos, count_multiplicity=count_multiplicity)
 
-    if first_fold_frame is None:
-        pre_frames = map_uid[first_unfold_frame:]
-    else:
-        pre_frames = map_uid[first_unfold_frame:first_fold_frame+1]
-    pre_seq = compress_sequence(pre_frames)
-    pre_edges = expand_seq_to_edges(G, pre_seq, expand_jumps, count_multiplicity=count_multiplicity)
-    #pre_x, pre_y = edge_traces_from_edges(pre_pairs, pos, count_multiplicity=count_multiplicity)
-    # -------------------------------------------------------------
+#     if first_fold_frame is None:
+#         pre_frames = map_uid[first_unfold_frame:]
+#     else:
+#         pre_frames = map_uid[first_unfold_frame:first_fold_frame+1]
+#     pre_seq = compress_sequence(pre_frames)
+#     pre_edges = expand_seq_to_edges(G, pre_seq, expand_jumps, count_multiplicity=count_multiplicity)
+#     #pre_x, pre_y = edge_traces_from_edges(pre_pairs, pos, count_multiplicity=count_multiplicity)
+#     # -------------------------------------------------------------
 
-    fig = make_subplots(rows=1, cols=2, column_widths=[0.66, 0.34], specs=[[{"type":"scatter"}, {"type":"heatmap"}]])
+#     fig = make_subplots(rows=1, cols=2, column_widths=[0.66, 0.34], specs=[[{"type":"scatter"}, {"type":"heatmap"}]])
 
-    # 1. Background (Manifold)
-    if bg_x:
-        fig.add_trace(go.Scatter(x=bg_x, y=bg_y, mode='lines', line=dict(color='rgba(200,200,200,0.5)', width=1), hoverinfo='none'), row=1, col=1)
+#     # 1. Background (Manifold)
+#     if bg_x:
+#         fig.add_trace(go.Scatter(x=bg_x, y=bg_y, mode='lines', line=dict(color='rgba(200,200,200,0.5)', width=1), hoverinfo='none'), row=1, col=1)
 
-    # 2. Post-fold (Red)
-    for t in edge_traces_from_edges(post_edges):
-        fig.add_trace(
-            go.Scatter(
-                x=t['x'],
-                y=t['y'],
-                mode='lines+markers',
-                line=dict(
-                    color='rgba(200,20,20,0.9)',
-                    width=t['width']
-                ),
-                hoverinfo='text',
-                hovertext=[t['hover']],
-                name='post'
-            ),
-            row=1, col=1
-        )
+#     # 2. Post-fold (Red)
+#     for t in edge_traces_from_edges(post_edges):
+#         fig.add_trace(
+#             go.Scatter(
+#                 x=t['x'],
+#                 y=t['y'],
+#                 mode='lines+markers',
+#                 line=dict(
+#                     color='rgba(200,20,20,0.9)',
+#                     width=t['width']
+#                 ),
+#                 hoverinfo='text',
+#                 hovertext=[t['hover']],
+#                 name='post'
+#             ),
+#             row=1, col=1
+#         )
         
-    # 3. Pre-fold (Grey)
-    for t in edge_traces_from_edges(pre_edges):
-        fig.add_trace(
-            go.Scatter(
-                x=t['x'],
-                y=t['y'],
-                mode='lines+markers',
-                line=dict(
-                    color='rgba(150,150,150,0.6)',
-                    width=t['width']
-                ),
-                hoverinfo='text',
-                hovertext=[t['hover']],
-                name='post'
-            ),
-            row=1, col=1
-        )
+#     # 3. Pre-fold (Grey)
+#     for t in edge_traces_from_edges(pre_edges):
+#         fig.add_trace(
+#             go.Scatter(
+#                 x=t['x'],
+#                 y=t['y'],
+#                 mode='lines+markers',
+#                 line=dict(
+#                     color='rgba(150,150,150,0.6)',
+#                     width=t['width']
+#                 ),
+#                 hoverinfo='text',
+#                 hovertext=[t['hover']],
+#                 name='post'
+#             ),
+#             row=1, col=1
+#         )
 
-    # 4. Shortest (Blue)
-    if show_shortest:
-        try:
-            sp = nx.shortest_path(G, start_node, folded_node)
-            sp_pairs = [(sp[i], sp[i+1]) for i in range(len(sp)-1)]
-            sx, sy = edges_to_coords(sp_pairs)
-            if sx:
-                fig.add_trace(go.Scatter(x=sx, y=sy, mode='lines+markers', line=dict(color='rgba(0,0,200,1.0)', width=4), marker=dict(size=8), name='shortest'), row=1, col=1)
-        except: pass
+#     # 4. Shortest (Blue)
+#     if show_shortest:
+#         try:
+#             sp = nx.shortest_path(G, start_node, folded_node)
+#             sp_pairs = [(sp[i], sp[i+1]) for i in range(len(sp)-1)]
+#             sx, sy = edges_to_coords(sp_pairs)
+#             if sx:
+#                 fig.add_trace(go.Scatter(x=sx, y=sy, mode='lines+markers', line=dict(color='rgba(0,0,200,1.0)', width=4), marker=dict(size=8), name='shortest'), row=1, col=1)
+#         except: pass
 
-    # 5. Physics Shortest Path (Violet)
-    if physics_path_nodes and len(physics_path_nodes) > 1:
-        pp_pairs = [(physics_path_nodes[i], physics_path_nodes[i+1]) for i in range(len(physics_path_nodes)-1)]
-        px, py = edges_to_coords(pp_pairs)
-        if px:
-             fig.add_trace(
-                 go.Scatter(x=px, y=py, mode='lines+markers', 
-                            line=dict(color='rgb(180, 20, 220)', width=3), # Violet
-                            marker=dict(size=6, color='rgb(180, 20, 220)'),
-                            name='Physics Path'), 
-                 row=1, col=1
-             )
+#     # 5. Physics Shortest Path (Violet)
+#     if physics_path_nodes and len(physics_path_nodes) > 1:
+#         pp_pairs = [(physics_path_nodes[i], physics_path_nodes[i+1]) for i in range(len(physics_path_nodes)-1)]
+#         px, py = edges_to_coords(pp_pairs)
+#         if px:
+#              fig.add_trace(
+#                  go.Scatter(x=px, y=py, mode='lines+markers', 
+#                             line=dict(color='rgb(180, 20, 220)', width=3), # Violet
+#                             marker=dict(size=6, color='rgb(180, 20, 220)'),
+#                             name='Physics Path'), 
+#                  row=1, col=1
+#              )
 
-    # 6. Nodes (UPDATED FOR CUSTOM COLOR)
-    node_trace = go.Scatter(
-        x=xs, y=ys, mode='markers',
-        marker=dict(
-            size=node_sizes, 
-            color=node_colors, 
-            colorscale=palette, 
-            colorbar=dict(title=cbar_title),
-            showscale=True, 
-            line=dict(width=line_widths, color=line_colors)
-        ),
-        text=frame_counts, # Passed to hover template
-        customdata=np.arange(U), 
-        hovertemplate=hover_template,
-        name='nodes'
-    )
-    fig.add_trace(node_trace, row=1, col=1)
+#     # 6. Nodes (UPDATED FOR CUSTOM COLOR)
+#     node_trace = go.Scatter(
+#         x=xs, y=ys, mode='markers',
+#         marker=dict(
+#             size=node_sizes, 
+#             color=node_colors, 
+#             colorscale=palette, 
+#             colorbar=dict(title=cbar_title),
+#             showscale=True, 
+#             line=dict(width=line_widths, color=line_colors)
+#         ),
+#         text=frame_counts, # Passed to hover template
+#         customdata=np.arange(U), 
+#         hovertemplate=hover_template,
+#         name='nodes'
+#     )
+#     fig.add_trace(node_trace, row=1, col=1)
 
-    # 7. Heatmap
-    if unique_maps is not None:
-        fig.add_trace(go.Heatmap(z=unique_maps[start_node], zmin=0, zmax=1), row=1, col=2)
-    else:
-        fig.add_trace(go.Heatmap(z=np.zeros((2,2))), row=1, col=2)
+#     # 7. Heatmap
+#     if unique_maps is not None:
+#         fig.add_trace(go.Heatmap(z=unique_maps[start_node], zmin=0, zmax=1), row=1, col=2)
+#     else:
+#         fig.add_trace(go.Heatmap(z=np.zeros((2,2))), row=1, col=2)
 
-    fig.update_layout(height=figsize[1], width=figsize[0], title_text="Protein Folding Contact Topology Graph")
-    fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
-    fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
+#     fig.update_layout(height=figsize[1], width=figsize[0], title_text="Protein Folding Contact Topology Graph")
+#     fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
+#     fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
 
-    figw = go.FigureWidget(fig)
-    info = HTML(value=f"Start: {start_node}, Folded: {folded_node}")
+#     figw = go.FigureWidget(fig)
+#     info = HTML(value=f"Start: {start_node}, Folded: {folded_node}")
 
-    def on_click(trace, points, state):
-        if not points.point_inds: return
-        idx = points.point_inds[0]
-        node_id = trace.customdata[idx]
-        if unique_maps is not None:
-            figw.data[-1].z = unique_maps[node_id]
-        info.value = f"Node {node_id} (Frames: {G.nodes[node_id]['frame_count']})"
+#     def on_click(trace, points, state):
+#         if not points.point_inds: return
+#         idx = points.point_inds[0]
+#         node_id = trace.customdata[idx]
+#         if unique_maps is not None:
+#             figw.data[-1].z = unique_maps[node_id]
+#         info.value = f"Node {node_id} (Frames: {G.nodes[node_id]['frame_count']})"
 
-    for tr in figw.data:
-        if tr.name == 'nodes': tr.on_click(on_click)
+#     for tr in figw.data:
+#         if tr.name == 'nodes': tr.on_click(on_click)
 
-    display(VBox([figw, info]))
-    return figw, info
+#     display(VBox([figw, info]))
+#     return figw, info
 
 def plot_graph_auto(
     G,
@@ -597,7 +600,7 @@ def plot_graph_auto(
     '''
     map_uid = np.asarray(map_uid, dtype=int)
     
-    # 1. Standardize Layout (Pos)
+    # standardize layout (pos)
     if pos is None:
         if X_emb is not None:
             X_emb = np.asarray(X_emb)
@@ -608,7 +611,7 @@ def plot_graph_auto(
             except:
                 pos = {i:(0,0) for i in G.nodes()}
 
-    # 2. Route to appropriate plotter
+    # choose plotter
     if interactive:
         return plot_graph_widget(
             G, pos, map_uid,
@@ -657,46 +660,38 @@ def plot_energy_landscape(G, committor_map, free_energy_map,
                          custom_paths=None, 
                          custom_paths_colors=None,
                          folded_node=None,
+                         node_sizes=[],
+                         legend_location="upper center",
                          figsize=(10, 6)):
-    """
-    Projects the graph onto Thermodynamic Axes:
-    X-axis: Committor Probability (q) [Reaction Progress]
-    Y-axis: Free Energy (F) [Stability]
-    """
+    ''' 
+    Alternative plotting coordinates for graph. Instead given a 
+    mapping of commitor probability and free energy for each node 
+    values for each node we plot them on the x,y respectively.
+    '''
     
-    # 1. Extract Coordinates for every node
     nodes = list(G.nodes())
     x_q = []
     y_f = []
-    node_sizes = []
+    if len(node_sizes) == 0: # default uniform node sizes of 40
+        node_sizes = [40 for _ in range(len(nodes))]
     
-    # Check bounds for normalization
+    # check bounds for normalization
     f_values = [free_energy_map.get(n, 0) for n in nodes]
     min_f, max_f = min(f_values), max(f_values)
     
-    for n in nodes:
+    for n in nodes: # for each node we get its respective q and f values = x,y coords
         q = committor_map.get(n, 0.0)
         f = free_energy_map.get(n, 0.0)
         
-        # Add some jitter to x so nodes at exactly same q don't overlap perfectly
-        # (Optional, but helps visibility for discrete states)
+        # plus some jitter to x so nodes at exactly same q don't overlap perfectly
         jitter = np.random.normal(0, 0.005) 
         
         x_q.append(q + jitter)
         y_f.append(f)
-        
-        # Size nodes by stability (inverse of energy, visually)
-        # Or just fixed size. Let's use fixed size for clarity of the 'profile'
-        node_sizes.append(40)
 
-    x_q = np.array(x_q)
-    y_f = np.array(y_f)
-    
-    # 2. Setup Plot
     fig, ax = plt.subplots(figsize=figsize)
     
-    # 3. Draw Edges (grey lines in the background)
-    # This visualizes the connectivity across the barrier
+    # grey edges
     lines = []
     for u, v in G.edges():
         if u in committor_map and v in committor_map:
@@ -707,13 +702,11 @@ def plot_energy_landscape(G, committor_map, free_energy_map,
     lc = LineCollection(lines, colors='gray', alpha=0.15, linewidths=0.5, zorder=1)
     ax.add_collection(lc)
 
-    # 4. Draw Nodes
-    # Color by Committor (Red=Folded, Blue=Unfolded)
+    # draw nodes coloured by node sizes
     sc = ax.scatter(x_q, y_f, c=x_q, cmap='RdBu_r', s=node_sizes, 
                     edgecolor='k', linewidth=0.3, alpha=0.8, zorder=2)
 
-    # 5. Highlight Physics Path (Violet)
-    # This shows exactly how the optimal path traverses the barrier
+    # draw custom paths
     if custom_paths:
         for i, path in enumerate(custom_paths):
             # Draw the line
@@ -729,18 +722,18 @@ def plot_energy_landscape(G, committor_map, free_energy_map,
         ax.scatter(x_q[folded_node], y_f[folded_node], 
             c='red', s=150, marker='*', label='True Folded State', zorder=10)
 
-    # 6. Formatting
+    # formatting
     ax.set_xlabel("Reaction Coordinate $q$ (Committor Probability)")
     ax.set_ylabel("Free Energy $F$ ($k_B T$)")
-    ax.set_title("Projected Free Energy Landscape")
+    ax.set_title("Chignolin Projected Free Energy Landscape on Reaction Coordinates")
     
-    # Add helper text
-    ax.text(0.05, 0.3, "Unfolded Basin", transform=ax.transAxes, ha='left', va='top', fontweight='bold', color='blue')
-    ax.text(0.95, 0.95, "Folded Basin", transform=ax.transAxes, ha='right', va='top', fontweight='bold', color='red')
-    ax.text(0.5, 0.05, "Transition Barrier", transform=ax.transAxes, ha='center', va='bottom', fontweight='bold', alpha=0.5)
+    # state text (this is for my specific results when I ran the code, too lazy to make as function arguments!)
+    ax.text(0.05, 0.25, "Unfolded Basin", transform=ax.transAxes, ha='left', va='top', fontweight='bold', color='blue')
+    ax.text(0.9, 0.1, "Folded Basin", transform=ax.transAxes, ha='right', va='top', fontweight='bold', color='red')
+    ax.text(0.7, 0.65, "Transition Barrier", transform=ax.transAxes, ha='center', va='bottom', fontweight='bold', alpha=0.5)
 
     cbar = plt.colorbar(sc)
     cbar.set_label("Folding Prob ($q$)")
-    ax.legend(loc='upper center')
+    ax.legend(loc=legend_location)
     
     return fig, ax

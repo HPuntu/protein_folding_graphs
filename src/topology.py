@@ -6,6 +6,9 @@ import scipy.linalg as sla
 # CORE FUNCTIONS for transforming trajectories to contact map graph networks
 
 def kabsch_align(P, Q):
+    '''
+    kabsch algorithm 
+    '''
     Pc = P - P.mean(axis=0)
     Qc = Q - Q.mean(axis=0)
     C = Pc.T @ Qc
@@ -17,6 +20,9 @@ def kabsch_align(P, Q):
     return (Pc @ R) + Q.mean(axis=0)
 
 def align_traj(coords, ref=None):
+    '''
+    Centeres and aligns to arrays of coords using the kabsch algorithm 
+    '''
     T, N, _ = coords.shape
     if ref is None:
         ref = coords[0]
@@ -55,7 +61,12 @@ def get_contact_maps(u=None, top=None, traj=None):
     return contact_maps
 
 def flatten_upper_bits(maps):
-    ''''''
+    '''
+    Given an array of contact maps of shape (U,N,N) where 
+    U is the number of unique contact maps, flatten each
+    contact map into its upper triangle and translate into
+    bit integer representation.
+    '''
     U, N, N2 = maps.shape
     assert N == N2
     tri = np.triu_indices(N, k=1)
