@@ -67,8 +67,7 @@ def flatten_upper_bits(maps):
     '''
     Given an array of contact maps of shape (U,N,N) where 
     U is the number of unique contact maps, flatten each
-    contact map into its upper triangle and translate into
-    bit integer representation.
+    contact map into its upper triangle.
     '''
     U, N, N2 = maps.shape
     assert N == N2
