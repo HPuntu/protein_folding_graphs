@@ -1,1 +1,1 @@
-__all__ = ["topology", "graphs", "clustering", "plotting", "graph_analysis"]
+__all__ = ["contacts", "graphs", "clustering", "plotting", "graph_analysis", "contact_energies"]

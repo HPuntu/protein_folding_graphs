@@ -305,8 +305,8 @@ def plot_graph_static(
 
     # folded node with red star
     if folded_node:
-        ax.scatter(node_x[folded_node], node_y[folded_node], 
-           c='red', s=150, marker='*', label='True Folded State', zorder=10)
+        ax.scatter(node_x[folded_node], node_y[folded_node], linewidths=2, edgecolors='black',
+           c='red', s=500, marker='*', label='True Folded State', zorder=10)
 
     # colorbar 
     cbar = fig.colorbar(sc, ax=ax, fraction=0.035, pad=0.02)
@@ -719,8 +719,8 @@ def plot_energy_landscape(G, committor_map, free_energy_map,
             ax.scatter(path_x, path_y, color=path_color, s=20, zorder=4)
 
     if folded_node:
-        ax.scatter(x_q[folded_node], y_f[folded_node], 
-            c='red', s=150, marker='*', label='True Folded State', zorder=10)
+        ax.scatter(x_q[folded_node], y_f[folded_node], linewidths=2, edgecolors='black',
+            c='red', s=500, marker='*', label='True Folded State', zorder=10)
 
     # formatting
     ax.set_xlabel("Reaction Coordinate $q$ (Committor Probability)")

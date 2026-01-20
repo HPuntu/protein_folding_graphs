@@ -11,6 +11,7 @@ import scipy.sparse.linalg
 # ensembles and energy landscapes, the shortest path with 
 # kinetic weighting and the folded state.
 
+
 def pseudo_free_energy(node_counts, node_list):
     ''' 
     Calculate pseudo-Free Energy F for each node by boltzmann
