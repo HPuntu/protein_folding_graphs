@@ -112,7 +112,7 @@ def kinetic_graph(G, P):
 
     return G_kin
 
-def markov_state_model(G, T=300):
+def free_energy_analysis(G, T=300):
     '''
     Determine free energy landscape of a graph given it has temporal
     transition counts as edge attributes and frame counts as node
@@ -188,7 +188,7 @@ def physics_shortest_path(G_phys, start_node, folded_node, physics="kinetic"):
     by the respective physics - thus smoothing over MD noise!
     '''
 
-    if physics is "kinetic": # Most Probable Path (Kinetic)
+    if physics == "kinetic": # Most Probable Path (Kinetic)
         try:
             path_mpp = nx.shortest_path(G_phys, source=start_node, target=folded_node, weight='weight')
             print(f"Most Probable Path (MPP): {len(path_mpp)} steps")
@@ -196,7 +196,7 @@ def physics_shortest_path(G_phys, start_node, folded_node, physics="kinetic"):
             print("MPP not found.")
             path_mpp = []
     
-    elif physics is "thermodynamic": # Min Free Energy Barrier Path (Thermodynamic)
+    elif physics == "thermodynamic": # Min Free Energy Barrier Path (Thermodynamic)
         try:
             path_mfep = nx.shortest_path(G_phys, source=start_node, target=folded_node, weight='weight')
             print(f"Min Free Energy Path: {len(path_mfep)} steps")
@@ -419,3 +419,55 @@ def compute_committor(G, start_node, folded_node, use_direct_solver=True):
     q = np.clip(q, 0.0, 1.0)
 
     return {node: val for node, val in zip(nodes, q)}
+
+def compute_committor_reversible(G, start_node, folded_node, pseudocount=1e-8, use_direct_solver=True):
+    '''
+    Undirected graph version of the committor calculation which
+    assumes detailed balance and reversibility of the transition 
+    matrix which we regularise and symmetrise.
+    '''
+
+    nodes = list(G.nodes())
+    n = len(nodes)
+    idx = {node:i for i,node in enumerate(nodes)}
+    
+    # Build count matrix (A_ij = observed transitions i->j)
+    A = nx.to_scipy_sparse_array(G, nodelist=nodes, weight='temp_count', format='csr').astype(float)
+    
+    # regularise counts: add pseudocount to every entry or at least every observed row/col
+    if pseudocount is not None and pseudocount > 0:
+        ones = scipy.sparse.csr_matrix(np.ones((n, n)))
+        A = A + pseudocount * ones
+    
+    # symmetrize fluxes: c_ij = (A_ij + A_ji)/2
+    C = (A + A.T) * 0.5
+    C = C.tocsr()
+    
+    # build Laplacian L = diag(row_sum) - C
+    row_sum = np.array(C.sum(axis=1)).flatten()
+    L = scipy.sparse.diags(row_sum) - C  # symmetric
+    L = L.tolil()
+    
+    # boundary handling: sets A and B (here singletons)
+    s_idx = idx[start_node]
+    f_idx = idx[folded_node]
+    
+    # prepare RHS and apply Dirichlet BCs
+    b = np.zeros(n)
+    # For Dirichlet we zero out rows, set diag=1 and b to BC value
+    for i,val in ((s_idx,0.0),(f_idx,1.0)):
+        L[i,:] = 0.0
+        L[i,i] = 1.0
+        b[i] = val
+    
+    L_csr = L.tocsr()
+    
+    if use_direct_solver:
+        q = scipy.sparse.linalg.spsolve(L_csr, b)
+    else:
+        q, info = scipy.sparse.linalg.cg(L_csr, b, atol=1e-10, tol=1e-10)
+        if info != 0:
+            raise RuntimeError(f"CG did not converge (info={info})")
+    
+    q = np.clip(q, 0.0, 1.0)
+    return {node: float(q[idx[node]]) for node in nodes}

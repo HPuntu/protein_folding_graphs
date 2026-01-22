@@ -10,7 +10,7 @@ import pandas as pd
 
 # Functionality for inferring contact flip energies from graph networks using kinetic approach 
 
-def get_bit_flipped(val1: int, val2: int):
+def get_bit_flipped(val1, val2):
     '''
     Determine which contact residue pair was fipped between two integer bit representation
     contact maps with hamming distance 1.
@@ -35,7 +35,7 @@ def get_bit_flipped(val1: int, val2: int):
     return -1, 0
 
 
-def get_residue_pair_from_bit(bit_index: int, n_residues: int):
+def get_residue_pair_from_bit(bit_index, n_residues):
     '''
     Given bit index of flipped bit and number of residues we can infer the
     residue pair (i, j) by converting upper-triangle flattened bit with 
@@ -148,7 +148,7 @@ def infer_contact_flip_energies_from_graph(
                         pass
 
         except nx.NetworkXNoPath:
-            print("ERROR: No path on manifold between", u, v)
+            print("WARNING: No path on manifold between", u, v)
             continue
 
     # compute per-manifold-edge flip identity and edge-level p/k/dG
@@ -290,5 +290,3 @@ def infer_contact_flip_energies_from_graph(
 
     return G, df, out
 
-# G_energy, df, results = infer_contact_flip_energies_from_graph(G, ints=ints, node_state_attr=G.nodes, Gm=Gm)
-# df

@@ -101,6 +101,21 @@ def expand_seq_to_edges(G, node_seq, expand_jumps=True, count_multiplicity=False
 
     return counts if count_multiplicity else out
 
+def pairs_and_widths_from_edges(edges, pos, base_w=1.0, scale_w=1.2):
+    '''
+    edges may be list-of-pairs OR Counter
+    returns: segs ([(p0,p1),...]), widths ([w,...])
+    '''
+    if isinstance(edges, Counter):
+        items = list(edges.items())  # [((a,b), count), ...]
+        segs = [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for (a,b), _ in items]
+        widths = [base_w + scale_w * np.sqrt(c) for (_, c) in items]
+    else:
+        # list of pairs
+        segs = [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for a,b in edges]
+        widths = [2.0] * len(segs)  # old fixed widths
+    return segs, widths
+
 def plot_graph_static(
     G,
     map_uid,
@@ -223,21 +238,6 @@ def plot_graph_static(
     # helpers to prepare the edge segments for matplotlib
     def pairs_to_segs(pairs):
         return [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for a,b in pairs]
-
-    def pairs_and_widths_from_edges(edges, pos, base_w=1.0, scale_w=1.2):
-        '''
-        edges may be list-of-pairs OR Counter
-        returns: segs ([(p0,p1),...]), widths ([w,...])
-        '''
-        if isinstance(edges, Counter):
-            items = list(edges.items())  # [((a,b), count), ...]
-            segs = [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for (a,b), _ in items]
-            widths = [base_w + scale_w * np.sqrt(c) for (_, c) in items]
-        else:
-            # list of pairs
-            segs = [((pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])) for a,b in edges]
-            widths = [2.0] * len(segs)  # old fixed widths
-        return segs, widths
 
     #bg_segs = pairs_to_segs(list(G.edges()))
     temporal_edges = [(u, v) for u, v, d in G.edges(data=True) if d.get('temporal', False)]
@@ -715,7 +715,7 @@ def plot_energy_landscape(G, committor_map, free_energy_map,
             if custom_paths_colors:
                 path_color = custom_paths_colors[i]
             else: path_color = "violet"
-            ax.plot(path_x, path_y, color=path_color, linewidth=3, label=path, zorder=3)
+            ax.plot(path_x, path_y, color=path_color, linewidth=1, label=path, zorder=3)
             ax.scatter(path_x, path_y, color=path_color, s=20, zorder=4)
 
     if folded_node:
