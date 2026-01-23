@@ -1,1 +1,2 @@
-Graph network representation of protein folding. Nodes are unique contact maps observed in MD folding trajectories, edges are temporal adjacencies in the sequence of frames. This code accompanies the blog post exploring how we can use these graph representations to model protein folding and identify transition states.
+Graph network representation of protein folding. Nodes are unique contact maps observed in MD folding trajectories, edges are temporal adjacencies in the sequence of frames. This code accompanies the blog post exploring how we can use these graph representations to model protein folding and identify transition states: 
+  https://users.ox.ac.uk/~kebl8116/blogs/graph-network-protein-folding-modelling-2/
